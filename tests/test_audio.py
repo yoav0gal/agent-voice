@@ -82,3 +82,23 @@ def test_change_tempo_uses_pitch_preserving_ffmpeg_filter(monkeypatch):
     command, kwargs = commands[0]
     assert "atempo=2.0" in command
     assert kwargs["input"] == samples.astype("<f4").tobytes()
+
+
+def test_windows_ffplay_receives_headless_autoexit_flags(tmp_path, monkeypatch):
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append((command, kwargs))
+
+    monkeypatch.setattr(
+        audio_module.shutil,
+        "which",
+        lambda name: r"C:\ffmpeg\bin\ffplay.exe" if name == "ffplay" else None,
+    )
+    monkeypatch.setattr(audio_module.subprocess, "run", run)
+
+    audio_module.play_audio(tmp_path / "recording.wav")
+
+    command, kwargs = commands[0]
+    assert command[1:5] == ["-nodisp", "-autoexit", "-loglevel", "error"]
+    assert kwargs == {"check": True, "capture_output": True}

@@ -123,7 +123,8 @@ def play_audio(path: Path) -> None:
     last_error: subprocess.CalledProcessError | None = None
     for player in players:
         command = [player, str(path)]
-        if Path(player).name == "ffplay":
+        player_name = Path(str(player).replace("\\", "/")).name.lower()
+        if player_name in {"ffplay", "ffplay.exe"}:
             command[1:1] = ["-nodisp", "-autoexit", "-loglevel", "error"]
         try:
             subprocess.run(command, check=True, capture_output=True)

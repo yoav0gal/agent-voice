@@ -68,7 +68,7 @@
       <h1>Kokoro CLI</h1>
       <p class="lede">A self-contained, offline-first text-to-speech product for people and agents. Generate a recording, validate its metadata, optionally play it, and return a concrete file—not a promise.</p>
       <div class="status-row">
-        <span class="pill good">Published on PyPI · 0.3.0</span>
+        <span class="pill good">Version 0.4.0 · cross-platform generation</span>
         <span class="pill good">Verified TTS core preserved</span>
         <span class="pill">Kokoro-82M via ONNX</span>
         <span class="pill">24 kHz mono</span>
@@ -80,9 +80,9 @@
       <h2>Current capabilities</h2>
       <div class="grid">
         <article class="card"><span class="number">01</span><h3>Generate</h3><p>Read text from an argument or stdin. Choose voice, speed, language, model variant, output path, and WAV, MP3, Opus, or M4A.</p></article>
-        <article class="card"><span class="number">02</span><h3>Play</h3><p>Optionally play completed audio through <code>afplay</code> or <code>ffplay</code>. Success is reported only after the player exits successfully.</p></article>
+        <article class="card"><span class="number">02</span><h3>Play</h3><p>Optionally play completed audio through <code>afplay</code> or <code>ffplay</code>. Success is reported only after the player exits successfully. Windows playback is experimental because CI cannot prove audible output.</p></article>
         <article class="card"><span class="number">03</span><h3>Automate</h3><p>Emit a proof-carrying JSON receipt with an absolute path, audio metadata, backend, and playback state. A localhost OpenAI-shaped HTTP endpoint supports long-lived agent workflows.</p></article>
-        <article class="card"><span class="number">04</span><h3>Inspect</h3><p>List installed voices. Model artifacts are downloaded under a process lock, written atomically, and checked against pinned sizes and SHA-256 hashes.</p></article>
+        <article class="card"><span class="number">04</span><h3>Inspect</h3><p>List installed voices. Model artifacts are downloaded under a cross-platform OS process lock, written atomically, and checked against pinned sizes and SHA-256 hashes.</p></article>
         <article class="card"><span class="number">05</span><h3>Diagnose</h3><p><code>kokoro doctor</code> is the product-health contract for runtime, model, codecs, playback, writable output, and optional service state.</p></article>
         <article class="card"><span class="number">06</span><h3>Compose</h3><p>Public CLI and HTTP contracts are deliberately small so other products can create speech without importing Kokoro internals.</p></article>
       </div>
@@ -107,7 +107,7 @@ kokoro speak "Strict service run." --service required --json
 # Long-lived localhost service
 kokoro serve
 curl http://127.0.0.1:8765/health</code></pre>
-      <p class="note">The installed <code>kokoro</code> command works from any directory. Contributors can still use <code>./kokoro</code> inside a checkout.</p>
+      <p class="note">The installed <code>kokoro</code> command works from any directory. Contributors can use <code>./kokoro</code> inside a macOS/Linux checkout or <code>uv run --frozen kokoro</code> on Windows.</p>
     </section>
 
     <section>
@@ -137,8 +137,8 @@ curl http://127.0.0.1:8765/health</code></pre>
     <section>
       <h2>Verified behavior</h2>
       <div class="two">
-        <article class="card"><h3>Automated checks</h3><p>31 tests pass across atomic audio and service output, persistent voice and speed defaults, model selection, payload validation, localhost binding, live health and speech requests, CLI naming, service fallback, required-service failure, and playback reporting. CI runs Ruff and pytest on macOS and Linux with Python 3.11 and 3.13, then builds the wheel and source distribution.</p></article>
-        <article class="card"><h3>Real product checks</h3><p>The public <code>kokoro-cli==0.3.0</code> package was installed cache-free from PyPI into a fresh isolated tool environment. A fresh model setup downloaded and verified the pinned int8 assets, <code>kokoro doctor --json</code> passed every required check, and embedded inference produced a valid mono 24 kHz WAV using saved speech defaults.</p></article>
+        <article class="card"><h3>Automated checks</h3><p>35 tests cover atomic audio and service output, persistent defaults, model selection and concurrent downloads, Windows data paths and playback messaging, payload validation, localhost binding, live health and speech requests, service fallback, required-service failure, and honest playback receipts. CI runs Ruff and pytest on macOS and Linux, plus Windows on every supported Python version.</p></article>
+        <article class="card"><h3>Real product checks</h3><p>The Windows release gate builds and installs the wheel into clean Python 3.11, 3.12, and 3.13 environments; downloads and verifies the real int8 assets; synthesizes and decodes 24 kHz mono WAV audio with embedded inference; and repeats synthesis through a live required localhost service. Playback is deliberately excluded from that claim.</p></article>
       </div>
     </section>
 
@@ -146,11 +146,11 @@ curl http://127.0.0.1:8765/health</code></pre>
       <h2>Boundaries and planned work</h2>
       <div class="two">
         <article class="card boundary"><h3>Deliberate boundaries</h3><p>No remote binding, authentication layer, cloud TTS, speech-to-text, hidden reasoning narration, or HTML Drop implementation. This repository only exposes contracts another product can compose with.</p></article>
-        <article class="card planned"><h3>Planned, not current</h3><p>Streaming synthesis, sentence chunking for very long narration, richer install/uninstall helpers, additional platforms, and measured model-quality or latency comparisons.</p></article>
+        <article class="card planned"><h3>Planned, not current</h3><p>Streaming synthesis, sentence chunking for very long narration, richer install/uninstall helpers, audible Windows playback verification, and measured model-quality or latency comparisons.</p></article>
       </div>
     </section>
 
-    <footer>Repository capability record · Kokoro CLI 0.3.0 · updated 2026-07-24</footer>
+    <footer>Repository capability record · Kokoro CLI 0.4.0 · updated 2026-07-24</footer>
   </main>
 </body>
 </html>
