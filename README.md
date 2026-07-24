@@ -119,13 +119,13 @@ The API also accepts `"play": true` to play the result on the host. `GET /health
 
 ## Agent skill
 
-The repository includes the standalone [`kokoro-speak`](skills/kokoro-speak) skill. Install the CLI globally first; the skill invokes `kokoro` from `PATH` and does not depend on the repository location.
+The repository includes the standalone [`read-aloud`](skills/read-aloud) skill. Install the CLI globally first; the skill invokes `kokoro` from `PATH` and does not depend on the repository location.
 
 Copy the skill folder into your agent's skills directory. For Codex:
 
 ```sh
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/kokoro-speak "${CODEX_HOME:-$HOME/.codex}/skills/kokoro-speak"
+cp -R skills/read-aloud "${CODEX_HOME:-$HOME/.codex}/skills/read-aloud"
 ```
 
 Restart the agent after installation if it does not reload skills automatically.

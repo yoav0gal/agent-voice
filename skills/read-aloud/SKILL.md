@@ -1,9 +1,9 @@
 ---
-name: kokoro-speak
-description: Use the Kokoro CLI for read-aloud requests, local speech recordings, voice discovery, readiness checks, or the localhost speech service.
+name: read-aloud
+description: Use local speech synthesis when the user asks to read text aloud, speak a response, create narration, or produce an audio recording. Runs the globally installed Kokoro CLI.
 ---
 
-# Kokoro CLI
+# Read Aloud with Kokoro
 
 Use the globally installed `kokoro` command. If it is unavailable on `PATH`, direct the user to the repository README for installation instead of guessing a checkout path.
 

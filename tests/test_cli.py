@@ -18,9 +18,11 @@ def test_installed_command_and_parser_use_kokoro_name():
 
 def test_standalone_skill_uses_global_command():
     project = Path(__file__).parents[1]
-    skill = (project / "skills/kokoro-speak/SKILL.md").read_text()
+    skill = (project / "skills/read-aloud/SKILL.md").read_text()
     manifest = json.loads((project / "integrations/ygent.json").read_text())
 
+    assert "name: read-aloud" in skill
+    assert not (project / "skills/kokoro-speak").exists()
     assert "/Users/" not in skill
     assert "./kokoro" not in skill
     assert "kokoro speak" in skill

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Read Aloud"
+  short_description: "Read text aloud with the local Kokoro CLI"
+  default_prompt: "Use $read-aloud to read this text aloud and return the recording path."

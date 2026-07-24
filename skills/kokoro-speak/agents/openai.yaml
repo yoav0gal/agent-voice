@@ -1,4 +1,0 @@
-interface:
-  display_name: "Kokoro CLI"
-  short_description: "Use the local Kokoro text-to-speech CLI"
-  default_prompt: "Use $kokoro-speak to read this text aloud with the Kokoro CLI and return the recording path."
