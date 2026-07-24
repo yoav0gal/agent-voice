@@ -29,6 +29,18 @@ def test_standalone_skill_uses_global_command():
     assert "kokoro speak" in skill
     assert "uv tool install kokoro-cli" in skill
     assert "kokoro setup" in skill
+    assert "kokoro config --json" in skill
+    assert "kokoro config --reset" in skill
+    assert "kokoro --help" in skill
+    assert "--play" in skill
+    assert "`played` is `true`" in skill
+    assert "kokoro voices" not in skill
+    assert "kokoro doctor" not in skill
+    assert "$VISIBLE_SCRIPT" not in skill
+    assert "kokoro serve" not in skill
+    assert "--service" not in skill
+    assert "Default voice:" not in skill
+    assert "Default speed:" not in skill
     assert manifest["entrypoint"] == "kokoro"
 
 
