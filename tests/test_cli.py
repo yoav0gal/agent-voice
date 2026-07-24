@@ -27,6 +27,8 @@ def test_standalone_skill_uses_global_command():
     assert "/Users/" not in skill
     assert "./kokoro" not in skill
     assert "kokoro speak" in skill
+    assert "uv tool install kokoro-cli" in skill
+    assert "kokoro setup" in skill
     assert manifest["entrypoint"] == "kokoro"
 
 
