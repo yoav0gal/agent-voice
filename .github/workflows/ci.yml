@@ -45,3 +45,54 @@ jobs:
       - name: Build packages
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: uv build
+
+  windows:
+    name: windows-latest / Python ${{ matrix.python-version }} / package E2E
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install FFmpeg
+        uses: FedericoCarboni/setup-ffmpeg@36c6454b5a2348e7794ba2d82a21506605921e3d
+        with:
+          ffmpeg-version: 7.1.1
+
+      - name: Cache verified Kokoro model
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/kokoro-data/models
+          key: kokoro-v1-int8-windows
+
+      - name: Lint
+        run: uv run --frozen ruff check src tests .github/scripts
+
+      - name: Test
+        run: uv run --frozen pytest -q
+
+      - name: Build package
+        run: uv build
+
+      - name: Install built wheel
+        shell: pwsh
+        run: |
+          uv venv --python ${{ matrix.python-version }} .ci-venv
+          $wheel = (Get-ChildItem dist\*.whl).FullName
+          uv pip install --python .ci-venv\Scripts\python.exe $wheel
+
+      - name: Verify installed package with real model, audio, doctor, and service
+        shell: pwsh
+        env:
+          KOKORO_HOME: ${{ runner.temp }}/kokoro-data
+        run: |
+          .ci-venv\Scripts\python.exe .github\scripts\verify_windows.py .ci-venv\Scripts\kokoro.exe

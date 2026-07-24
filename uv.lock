@@ -76,6 +76,15 @@ wheels = [
 ]
 
 [[package]]
+name = "filelock"
+version = "3.32.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/80/8232b582c4b318b817cf1274ba74976b07b34d35ef439b3eb948f98645a1/filelock-3.32.0.tar.gz", hash = "sha256:7be2ad23a14607ccc71808e68fe30848aeace7058ace17852f68e2a68e310402", size = 213757, upload-time = "2026-07-21T13:17:42.898Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/06/79/b4c714bef36bc4ec2beeae1e0c124f0223888cd8c6feb1cdc56038116920/filelock-3.32.0-py3-none-any.whl", hash = "sha256:d396bea984af47333ef05e50eae7eff88c84256de6112aea0ec48a233c064fe3", size = 97732, upload-time = "2026-07-21T13:17:41.55Z" },
+]
+
+[[package]]
 name = "flatbuffers"
 version = "25.12.19"
 source = { registry = "https://pypi.org/simple" }
@@ -139,9 +148,10 @@ wheels = [
 
 [[package]]
 name = "kokoro-cli"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
+    { name = "filelock" },
     { name = "kokoro-onnx" },
 ]
 
@@ -152,7 +162,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "kokoro-onnx", specifier = "==0.5.0" }]
+requires-dist = [
+    { name = "filelock", specifier = ">=3.20,<4" },
+    { name = "kokoro-onnx", specifier = "==0.5.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [

@@ -4,7 +4,9 @@
 
 Offline text-to-speech for people and AI agents. Kokoro CLI runs Kokoro-82M locally, creates WAV, MP3, Opus, or M4A recordings, plays them on the host, and exposes an optional localhost API.
 
-Currently supported on macOS and Linux with Python 3.11–3.13.
+Audio generation is supported on Windows, macOS, and Linux with Python 3.11–3.13.
+Windows playback through `ffplay` is experimental because automated CI cannot
+prove audible output.
 
 ## Quick start
 
@@ -25,6 +27,11 @@ brew install uv ffmpeg
 ```
 
 On Linux, use your package manager for FFmpeg. WAV works without it; MP3, Opus, M4A, and speeds above 2x require it. `pipx install kokoro-cli` is also supported.
+
+On Windows, install `uv`, then run the same `uv tool install kokoro-cli`
+command from PowerShell. Models, recordings, and configuration default to
+`%LOCALAPPDATA%\kokoro`. Install FFmpeg to enable compressed formats, speeds
+above 2x, and experimental `--play` support through `ffplay`.
 
 ## Common commands
 
@@ -92,6 +99,8 @@ uv run --frozen pytest -q
 ```
 
 The checkout wrapper keeps its environment, models, and recordings inside the repository.
+On Windows, use `uv run --frozen kokoro setup` and
+`uv run --frozen kokoro doctor --json` from the checkout.
 
 ## More
 

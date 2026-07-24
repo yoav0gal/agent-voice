@@ -55,13 +55,22 @@ def diagnose(variant: str, service_url: str) -> dict[str, object]:
         "pass" if ffmpeg else "warn",
         ffmpeg or "ffmpeg not found; WAV output remains available",
     )
-    player = shutil.which("afplay") or shutil.which("ffplay")
-    _check(
-        checks,
-        "playback",
-        "pass" if player else "warn",
-        player or "no afplay/ffplay found; generation remains available",
-    )
+    if sys.platform == "win32":
+        player = shutil.which("ffplay")
+        detail = (
+            f"{player}; Windows playback is experimental and not exercised by CI"
+            if player
+            else "ffplay not found; generation remains available and Windows playback is experimental"
+        )
+        _check(checks, "playback", "warn", detail)
+    else:
+        player = shutil.which("afplay") or shutil.which("ffplay")
+        _check(
+            checks,
+            "playback",
+            "pass" if player else "warn",
+            player or "no afplay/ffplay found; generation remains available",
+        )
 
     try:
         health = health_check(service_url)

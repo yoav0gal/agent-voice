@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import os
 import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+
+from filelock import FileLock
 
 RELEASE_BASE = (
     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
@@ -52,6 +53,14 @@ def project_root() -> Path:
 
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "kokoro"
+    if sys.platform == "win32":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        base = (
+            Path(local_app_data).expanduser()
+            if local_app_data
+            else Path.home() / "AppData" / "Local"
+        )
+        return (base / "kokoro").resolve()
     xdg_data_home = os.environ.get("XDG_DATA_HOME")
     base = (
         Path(xdg_data_home).expanduser()
@@ -116,8 +125,7 @@ def _download_asset(
 ) -> None:
     name, expected_size, expected_sha256 = asset
     lock_path = destination.with_suffix(destination.suffix + ".lock")
-    with lock_path.open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with FileLock(lock_path):
         if not force and _valid_asset(destination, asset):
             print(f"✓ {name} already downloaded and verified", file=sys.stderr)
             return
