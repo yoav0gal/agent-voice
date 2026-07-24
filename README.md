@@ -1,5 +1,7 @@
 # Kokoro CLI
 
+[![skills.sh](https://skills.sh/b/yoav0gal/kokoro-cli)](https://skills.sh/yoav0gal/kokoro-cli)
+
 A small, offline text-to-speech tool for people and AI agents. It runs Kokoro-82M locally through ONNX, creates WAV, MP3, Opus, or M4A recordings, can play them on the host machine, and exposes an optional localhost HTTP API.
 
 Kokoro CLI currently targets macOS and Linux.
@@ -135,16 +137,25 @@ The API also accepts `"play": true` to play the result on the host. `GET /health
 
 ## Agent skill
 
-The repository includes the standalone [`read-aloud`](https://github.com/yoav0gal/kokoro-cli/tree/main/skills/read-aloud) skill. Install the CLI globally first; the skill invokes `kokoro` from `PATH` and does not depend on the repository location.
-
-Copy the skill folder into your agent's skills directory. For Codex:
+The repository includes the standalone [`read-aloud`](https://github.com/yoav0gal/kokoro-cli/tree/main/skills/read-aloud) skill. Install it globally for Codex directly from GitHub through [`skills`](https://skills.sh/):
 
 ```sh
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/read-aloud "${CODEX_HOME:-$HOME/.codex}/skills/read-aloud"
+npx skills add yoav0gal/kokoro-cli --skill read-aloud --global --agent codex --yes
 ```
 
-Restart the agent after installation if it does not reload skills automatically.
+To inspect the repository's available skills without installing:
+
+```sh
+npx skills add yoav0gal/kokoro-cli --list
+```
+
+The skill and CLI are separate installables:
+
+- `skills` installs only the `read-aloud` agent instructions from `skills/read-aloud`.
+- The skill invokes the global `kokoro` command and installs `kokoro-cli` from PyPI when that command is unavailable.
+- No local clone of this repository is required after installation.
+
+Restart the agent after installation if it does not reload skills automatically. For another supported agent, replace `codex` in the install command with its agent name.
 
 ## Use from a checkout
 

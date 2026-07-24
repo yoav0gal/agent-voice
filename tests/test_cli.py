@@ -20,6 +20,7 @@ def test_installed_command_and_parser_use_kokoro_name():
 def test_standalone_skill_uses_global_command():
     project = Path(__file__).parents[1]
     skill = (project / "skills/read-aloud/SKILL.md").read_text()
+    readme = (project / "README.md").read_text()
     manifest = json.loads((project / "integrations/ygent.json").read_text())
 
     assert "name: read-aloud" in skill
@@ -41,6 +42,11 @@ def test_standalone_skill_uses_global_command():
     assert "--service" not in skill
     assert "Default voice:" not in skill
     assert "Default speed:" not in skill
+    assert (
+        "npx skills add yoav0gal/kokoro-cli --skill read-aloud "
+        "--global --agent codex --yes"
+    ) in readme
+    assert "https://skills.sh/b/yoav0gal/kokoro-cli" in readme
     assert manifest["entrypoint"] == "kokoro"
 
 
