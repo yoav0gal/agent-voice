@@ -5,7 +5,7 @@ description: Use local speech synthesis when the user asks to read text aloud, s
 
 # Read Aloud with Kokoro
 
-Use the globally installed `kokoro` command. If it is unavailable, tell the user to run:
+Use the globally installed `kokoro` command. If it is unavailable, run:
 
 ```sh
 uv tool install kokoro-cli
