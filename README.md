@@ -6,12 +6,22 @@ Kokoro CLI currently targets macOS and Linux.
 
 ## Install globally
 
-Kokoro CLI supports Python 3.11 through 3.13 and uses [`uv`](https://docs.astral.sh/uv/) to install the command in an isolated tool environment.
-
-Install directly from GitHub:
+Kokoro CLI supports Python 3.11 through 3.13. Install it from PyPI with [`uv`](https://docs.astral.sh/uv/) to keep the command in an isolated tool environment:
 
 ```sh
-uv tool install "git+https://github.com/yoav0gal/kokoro-cli.git"
+uv tool install kokoro-cli
+```
+
+[`pipx`](https://pipx.pypa.io/) works too:
+
+```sh
+pipx install kokoro-cli
+```
+
+To upgrade an existing installation:
+
+```sh
+uv tool upgrade kokoro-cli
 ```
 
 If `uv` reports that its tool directory is not on `PATH`, run:
@@ -30,7 +40,7 @@ kokoro speak "Hello. This is Kokoro speaking locally." --play --json
 
 `kokoro setup` downloads the compact int8 model and voices once, approximately 121 MB total. Downloads are locked for concurrent processes and verified with pinned SHA-256 hashes. Speech synthesis is offline after setup.
 
-The global `kokoro` command works from any directory for the current user. To reinstall the latest GitHub version:
+The global `kokoro` command works from any directory for the current user. To install the latest unreleased GitHub version instead:
 
 ```sh
 uv tool install --force "git+https://github.com/yoav0gal/kokoro-cli.git"
@@ -119,7 +129,7 @@ The API also accepts `"play": true` to play the result on the host. `GET /health
 
 ## Agent skill
 
-The repository includes the standalone [`read-aloud`](skills/read-aloud) skill. Install the CLI globally first; the skill invokes `kokoro` from `PATH` and does not depend on the repository location.
+The repository includes the standalone [`read-aloud`](https://github.com/yoav0gal/kokoro-cli/tree/main/skills/read-aloud) skill. Install the CLI globally first; the skill invokes `kokoro` from `PATH` and does not depend on the repository location.
 
 Copy the skill folder into your agent's skills directory. For Codex:
 
@@ -164,7 +174,7 @@ agent or human (visible text only)
 
 The HTTP layer uses Python's standard library. Model inference is serialized behind a lock because a single local voice service values predictable resource use more than request fan-out.
 
-The directly openable product record at [`docs/capabilities.html`](docs/capabilities.html) distinguishes current, verified, planned, and out-of-scope behavior.
+The directly openable product record at [`docs/capabilities.html`](https://github.com/yoav0gal/kokoro-cli/blob/main/docs/capabilities.html) distinguishes current, verified, planned, and out-of-scope behavior.
 
 ## ygent integration
 
@@ -177,7 +187,7 @@ printf '%s' "Visible text" | kokoro speak --format mp3 --json
 kokoro voices --json
 ```
 
-The repository-owned integration manifest is [`integrations/ygent.json`](integrations/ygent.json). The complete adapter contract, discovery rules, exit behavior, and JSON receipt fields are documented in [`docs/ygent-integration.md`](docs/ygent-integration.md).
+The repository-owned integration manifest is [`integrations/ygent.json`](https://github.com/yoav0gal/kokoro-cli/blob/main/integrations/ygent.json). The complete adapter contract, discovery rules, exit behavior, and JSON receipt fields are documented in [`docs/ygent-integration.md`](https://github.com/yoav0gal/kokoro-cli/blob/main/docs/ygent-integration.md).
 
 ## Boundaries
 
