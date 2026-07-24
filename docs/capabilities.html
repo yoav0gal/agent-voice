@@ -68,6 +68,7 @@
       <h1>Kokoro CLI</h1>
       <p class="lede">A self-contained, offline-first text-to-speech product for people and agents. Generate a recording, validate its metadata, optionally play it, and return a concrete file—not a promise.</p>
       <div class="status-row">
+        <span class="pill good">Published on PyPI · 0.2.0</span>
         <span class="pill good">Verified TTS core preserved</span>
         <span class="pill">Kokoro-82M via ONNX</span>
         <span class="pill">24 kHz mono</span>
@@ -89,8 +90,8 @@
 
     <section>
       <h2>Commands</h2>
-      <pre><code># Install globally from GitHub
-uv tool install "git+https://github.com/yoav0gal/kokoro-cli.git"
+      <pre><code># Install the stable release globally from PyPI
+uv tool install kokoro-cli
 
 # Prepare and inspect
 kokoro setup
@@ -136,8 +137,8 @@ curl http://127.0.0.1:8765/health</code></pre>
     <section>
       <h2>Verified behavior</h2>
       <div class="two">
-        <article class="card"><h3>Automated checks</h3><p>19 tests pass across atomic WAV/service output, model selection, payload validation, localhost binding, live health and speech requests, CLI naming, auto fallback, required-service failure, and playback reporting. Ruff lint and formatting plus Python compilation also pass.</p></article>
-        <article class="card"><h3>Real product checks</h3><p>A built wheel installed as <code>kokoro 0.2.0</code> in an isolated Python 3.11 environment. Embedded synthesis produced and played a 3.968 s MP3; live required-service synthesis produced a 2.347 s WAV; both probed as mono 24 kHz. A stopped service triggered a real embedded fallback. The receipt-based Agent Skill passes the official validator and an independent forward test produced a valid 2.368 s MP3 without falsely claiming playback.</p></article>
+        <article class="card"><h3>Automated checks</h3><p>24 tests pass across atomic audio and service output, model selection, payload validation, localhost binding, live health and speech requests, CLI naming, service fallback, required-service failure, and playback reporting. CI runs Ruff and pytest on macOS and Linux with Python 3.11 and 3.13, then builds the wheel and source distribution.</p></article>
+        <article class="card"><h3>Real product checks</h3><p>The public <code>kokoro-cli==0.2.0</code> package was installed cache-free from PyPI into a fresh isolated tool environment. A fresh model setup downloaded and verified the pinned int8 assets, <code>kokoro doctor --json</code> passed every required check, and embedded inference produced a valid 5.696 s mono 24 kHz WAV.</p></article>
       </div>
     </section>
 
@@ -149,7 +150,7 @@ curl http://127.0.0.1:8765/health</code></pre>
       </div>
     </section>
 
-    <footer>Repository capability record · Kokoro CLI 0.2 product slice · updated 2026-07-22</footer>
+    <footer>Repository capability record · Kokoro CLI 0.2.0 · updated 2026-07-24</footer>
   </main>
 </body>
 </html>
