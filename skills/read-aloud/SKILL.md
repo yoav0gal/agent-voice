@@ -36,6 +36,6 @@ kokoro speak "Text to read" --play --json
 
 Only speak text visible to the user.
 
-Return `path`; only say it played when `played` is `true`.
+Return `path`; only say it was read aloud when `played` is `true`.
 
 Run `kokoro --help` or `kokoro <command> --help` for current commands and options.
