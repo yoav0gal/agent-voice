@@ -5,7 +5,12 @@ description: Use local speech synthesis when the user asks to read text aloud, s
 
 # Read Aloud with Kokoro
 
-Use the globally installed `kokoro` command. If it is unavailable on `PATH`, direct the user to the repository README for installation instead of guessing a checkout path.
+Use the globally installed `kokoro` command. If it is unavailable, tell the user to run:
+
+```sh
+uv tool install kokoro-cli
+kokoro setup
+```
 
 Default voice: `af_heart`
 Default speed: `1.0`
