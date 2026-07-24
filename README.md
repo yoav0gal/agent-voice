@@ -77,6 +77,10 @@ kokoro speak "A very fast reading." --speed 4.0 --play
 # Discover voices
 kokoro voices
 
+# Inspect or update persistent speech defaults
+kokoro config --json
+kokoro config --voice bf_emma --speed 1.15
+
 # Check runtime, models, codecs, playback, and optional service health
 kokoro doctor --json
 
@@ -93,6 +97,8 @@ Generated files use the platform user-data directory unless `--output` is suppli
 - Linux: `${XDG_DATA_HOME:-~/.local/share}/kokoro/recordings`
 
 Set `KOKORO_HOME`, `KOKORO_MODEL_DIR`, or `KOKORO_RECORDING_DIR` to choose explicit locations.
+
+The built-in voice is `af_heart` at `1.0x`. `kokoro config` stores machine-level voice and speed defaults in `config.json` under `KOKORO_HOME`; explicit `speak` flags take precedence. Run `kokoro config --reset` to restore the built-ins.
 
 The default `int8` model is the lightweight choice; `fp16` and `full` are available for A/B listening. Speech speed ranges from `0.5` to `4.0`. Speeds through `2.0` are generated directly by Kokoro; higher speeds use FFmpeg to accelerate the result while preserving pitch.
 

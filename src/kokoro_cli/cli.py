@@ -15,7 +15,15 @@ from .client import (
     health_check,
     request_speech,
 )
-from .engine import MAX_SPEED, MIN_SPEED, SpeechEngine
+from .config import (
+    MAX_SPEED,
+    MIN_SPEED,
+    config_path,
+    load_defaults,
+    reset_defaults,
+    update_defaults,
+)
+from .engine import SpeechEngine
 from .models import MODEL_ASSETS, download_models, models_ready, recording_dir
 
 
@@ -39,12 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     speak.add_argument("text", nargs="?", help="text to read; omit to read stdin")
     speak.add_argument("-o", "--output", type=Path, help="output path")
     speak.add_argument("-f", "--format", choices=FORMATS, default="wav")
-    speak.add_argument("-v", "--voice", default="af_heart")
+    speak.add_argument("-v", "--voice", help="voice name (default: configured voice)")
     speak.add_argument(
         "--speed",
         type=float,
-        default=1.0,
-        help=f"speech speed from {MIN_SPEED} to {MAX_SPEED} (default: 1.0)",
+        help=f"speech speed from {MIN_SPEED} to {MAX_SPEED} (default: configured speed)",
     )
     speak.add_argument("--lang", default="en-us")
     speak.add_argument("--play", action="store_true", help="play after generating")
@@ -71,6 +78,18 @@ def build_parser() -> argparse.ArgumentParser:
     voices.add_argument(
         "--model", choices=MODEL_ASSETS, default="int8", help="model variant"
     )
+
+    config = subparsers.add_parser("config", help="show or update speech defaults")
+    config.add_argument("--voice", help="set the default voice")
+    config.add_argument(
+        "--speed",
+        type=float,
+        help=f"set the default speed from {MIN_SPEED} to {MAX_SPEED}",
+    )
+    config.add_argument(
+        "--reset", action="store_true", help="restore built-in defaults"
+    )
+    config.add_argument("--json", action="store_true")
 
     serve_parser = subparsers.add_parser("serve", help="start the local HTTP API")
     serve_parser.add_argument(
@@ -107,6 +126,8 @@ def main(argv: list[str] | None = None) -> None:
             engine = _engine(args.model)
             voices = engine.voices()
             print(json.dumps({"voices": voices}) if args.json else "\n".join(voices))
+        elif args.command == "config":
+            _config(args)
         elif args.command == "serve":
             from .service import serve
 
@@ -131,6 +152,9 @@ def _engine(variant: str) -> SpeechEngine:
 
 
 def _speak(args: argparse.Namespace) -> None:
+    defaults = load_defaults()
+    args.voice = args.voice if args.voice is not None else defaults.voice
+    args.speed = args.speed if args.speed is not None else defaults.speed
     text = args.text if args.text is not None else sys.stdin.read()
     audio_format = args.format
     if args.output:
@@ -201,11 +225,36 @@ def _speak_locally(
         "path": str(path),
         "format": audio_format,
         "voice": args.voice,
+        "speed": args.speed,
         "sample_rate": speech.sample_rate,
         "duration_seconds": round(speech.duration_seconds, 3),
         "generation_seconds": round(speech.elapsed_seconds, 3),
         "backend": "local",
     }
+
+
+def _config(args: argparse.Namespace) -> None:
+    if args.reset and (args.voice is not None or args.speed is not None):
+        raise ValueError("--reset cannot be combined with --voice or --speed")
+    if args.reset:
+        defaults = reset_defaults()
+    elif args.voice is not None or args.speed is not None:
+        defaults = update_defaults(voice=args.voice, speed=args.speed)
+    else:
+        defaults = load_defaults()
+
+    payload: dict[str, object] = {
+        **defaults.to_dict(),
+        "source": "config" if config_path().is_file() else "built-in",
+        "path": str(config_path()),
+    }
+    if args.json:
+        print(json.dumps(payload))
+    else:
+        print(f"Voice: {defaults.voice}")
+        print(f"Speed: {defaults.speed:g}")
+        print(f"Source: {payload['source']}")
+        print(f"Config: {payload['path']}")
 
 
 def _display_number(value: object) -> str:

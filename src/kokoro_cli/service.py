@@ -9,6 +9,7 @@ from typing import Any
 
 from . import __version__
 from .audio import CONTENT_TYPES, FORMATS, play_audio, write_audio
+from .config import load_defaults
 from .engine import SpeechEngine
 
 
@@ -25,9 +26,10 @@ class SpeechRequest:
 def validate_payload(payload: object) -> SpeechRequest:
     if not isinstance(payload, dict):
         raise ValueError("JSON body must be an object")
+    defaults = load_defaults()
     text = payload.get("input", payload.get("text"))
-    voice = payload.get("voice", "af_heart")
-    speed = payload.get("speed", 1.0)
+    voice = payload.get("voice", defaults.voice)
+    speed = payload.get("speed", defaults.speed)
     lang = payload.get("lang", "en-us")
     audio_format = payload.get("response_format", payload.get("format", "mp3"))
     play = payload.get("play", False)
@@ -94,6 +96,7 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", CONTENT_TYPES[audio_format])
             self.send_header("Content-Length", str(len(data)))
             self.send_header("X-Kokoro-Voice", voice)
+            self.send_header("X-Kokoro-Speed", str(request.speed))
             self.send_header("X-Kokoro-Sample-Rate", str(metadata["sample_rate"]))
             self.send_header("X-Kokoro-Duration", str(metadata["duration_seconds"]))
             self.send_header(
