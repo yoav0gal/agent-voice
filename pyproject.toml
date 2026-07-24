@@ -1,0 +1,26 @@
+[project]
+name = "kokoro-cli"
+version = "0.2.0"
+description = "Offline-first Kokoro text-to-speech CLI and localhost service"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "kokoro-onnx==0.5.0",
+]
+
+[project.urls]
+Repository = "https://github.com/yoav0gal/kokoro-cli"
+Issues = "https://github.com/yoav0gal/kokoro-cli/issues"
+
+[project.scripts]
+kokoro = "kokoro_cli.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.12"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

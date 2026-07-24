@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "name": "kokoro",
+  "display_name": "Kokoro CLI",
+  "kind": "local-cli",
+  "entrypoint": "kokoro",
+  "setup_argv": ["setup", "--model", "int8"],
+  "doctor_argv": ["doctor", "--json"],
+  "agent_commands": {
+    "speak": {
+      "argv": ["speak", "--json"],
+      "accepts_stdin": true,
+      "result": "json-last-line"
+    },
+    "voices": {
+      "argv": ["voices", "--json"],
+      "result": "json"
+    }
+  }
+}

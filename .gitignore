@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.egg-info/
+dist/
+models/*.onnx
+models/*.bin
+models/*.lock
+recordings/*
+!models/.gitkeep
+!recordings/.gitkeep
