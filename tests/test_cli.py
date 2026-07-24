@@ -8,6 +8,7 @@ import pytest
 
 from kokoro_cli import cli
 from kokoro_cli.client import ServiceUnavailable
+from kokoro_cli.config import update_defaults
 
 
 def test_installed_command_and_parser_use_kokoro_name():
@@ -41,6 +42,7 @@ def test_auto_service_falls_back_to_embedded(tmp_path, monkeypatch, capsys):
             "path": str(destination),
             "format": audio_format,
             "voice": args.voice,
+            "speed": args.speed,
             "sample_rate": 24_000,
             "duration_seconds": 1.0,
             "generation_seconds": 0.1,
@@ -88,6 +90,7 @@ def test_played_is_true_only_after_player_returns(tmp_path, monkeypatch, capsys)
             "path": str(destination),
             "format": audio_format,
             "voice": args.voice,
+            "speed": args.speed,
             "sample_rate": 24_000,
             "duration_seconds": 1.0,
             "generation_seconds": 0.1,
@@ -114,3 +117,43 @@ def test_played_is_true_only_after_player_returns(tmp_path, monkeypatch, capsys)
     result = json.loads(capsys.readouterr().out)
     assert played == [output]
     assert result["played"] is True
+
+
+def test_speak_uses_saved_defaults(tmp_path, monkeypatch, capsys):
+    output = tmp_path / "configured.wav"
+    captured = {}
+    monkeypatch.setenv("KOKORO_HOME", str(tmp_path))
+    update_defaults(voice="bf_emma", speed=1.15)
+
+    def speak_locally(args, text, destination, audio_format):
+        captured.update(voice=args.voice, speed=args.speed)
+        destination.write_bytes(b"RIFF-local")
+        return {
+            "path": str(destination),
+            "format": audio_format,
+            "voice": args.voice,
+            "speed": args.speed,
+            "sample_rate": 24_000,
+            "duration_seconds": 1.0,
+            "generation_seconds": 0.1,
+            "backend": "local",
+        }
+
+    monkeypatch.setattr(cli, "_speak_locally", speak_locally)
+
+    cli.main(
+        [
+            "speak",
+            "visible text",
+            "--service",
+            "off",
+            "--output",
+            str(output),
+            "--json",
+        ]
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert captured == {"voice": "bf_emma", "speed": 1.15}
+    assert result["voice"] == "bf_emma"
+    assert result["speed"] == 1.15

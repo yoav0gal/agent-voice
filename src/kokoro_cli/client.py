@@ -99,10 +99,12 @@ def request_speech(
         raise ServiceUnavailable(f"speech request failed: {error}") from error
 
     path = write_audio_bytes(data, destination)
+    response_speed = _number_header(headers.get("X-Kokoro-Speed"), float)
     return {
         "path": str(path),
         "format": audio_format,
         "voice": headers.get("X-Kokoro-Voice", voice),
+        "speed": speed if response_speed is None else response_speed,
         "sample_rate": _number_header(headers.get("X-Kokoro-Sample-Rate"), int),
         "duration_seconds": _number_header(headers.get("X-Kokoro-Duration"), float),
         "generation_seconds": _number_header(

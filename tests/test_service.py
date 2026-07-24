@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from kokoro_cli.client import ServiceUnavailable, health_check, request_speech
+from kokoro_cli.config import update_defaults
 from kokoro_cli.engine import Speech
 from kokoro_cli.service import create_server, serve, validate_payload
 
@@ -16,6 +17,16 @@ def test_openai_shaped_payload_is_validated():
     assert request.speed == 1.0
     assert request.audio_format == "mp3"
     assert request.play is False
+
+
+def test_payload_uses_saved_defaults(tmp_path, monkeypatch):
+    monkeypatch.setenv("KOKORO_HOME", str(tmp_path))
+    update_defaults(voice="bf_emma", speed=1.15)
+
+    request = validate_payload({"input": "hello"})
+
+    assert request.voice == "bf_emma"
+    assert request.speed == 1.15
 
 
 @pytest.mark.parametrize(
@@ -71,6 +82,7 @@ def test_health_and_speech_contract(tmp_path):
     assert health["service"] == "kokoro"
     assert health["variant"] == "int8"
     assert result["backend"] == "service"
+    assert result["speed"] == 1.0
     assert result["sample_rate"] == 24_000
     assert result["duration_seconds"] == 0.1
     assert (tmp_path / "service.wav").stat().st_size > 44

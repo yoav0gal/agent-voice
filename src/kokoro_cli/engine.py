@@ -8,10 +8,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .audio import change_tempo
+from .config import DEFAULT_SPEED, DEFAULT_VOICE, MAX_SPEED, MIN_SPEED
 from .models import model_paths, models_ready
 
-MIN_SPEED = 0.5
-MAX_SPEED = 4.0
 KOKORO_MAX_SPEED = 2.0
 
 
@@ -47,8 +46,8 @@ class SpeechEngine:
     def synthesize(
         self,
         text: str,
-        voice: str = "af_heart",
-        speed: float = 1.0,
+        voice: str = DEFAULT_VOICE,
+        speed: float = DEFAULT_SPEED,
         lang: str = "en-us",
     ) -> Speech:
         text = text.strip()

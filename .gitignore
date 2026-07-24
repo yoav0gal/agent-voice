@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 *.egg-info/
 dist/
+config.json
 models/*.onnx
 models/*.bin
 models/*.lock

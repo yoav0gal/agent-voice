@@ -68,7 +68,7 @@
       <h1>Kokoro CLI</h1>
       <p class="lede">A self-contained, offline-first text-to-speech product for people and agents. Generate a recording, validate its metadata, optionally play it, and return a concrete file—not a promise.</p>
       <div class="status-row">
-        <span class="pill good">Published on PyPI · 0.2.0</span>
+        <span class="pill good">Published on PyPI · 0.3.0</span>
         <span class="pill good">Verified TTS core preserved</span>
         <span class="pill">Kokoro-82M via ONNX</span>
         <span class="pill">24 kHz mono</span>
@@ -126,7 +126,7 @@ curl http://127.0.0.1:8765/health</code></pre>
       <table>
         <thead><tr><th>Surface</th><th>Contract</th><th>Guarantee</th></tr></thead>
         <tbody>
-          <tr><td>CLI result</td><td>Final stdout line is JSON with absolute <code>path</code>, format, voice, timings, <code>backend</code>, and <code>played</code>.</td><td>Non-zero exit on generation, validation, required-service, or playback failure. Auto fallback is explicit in JSON.</td></tr>
+          <tr><td>CLI result</td><td>Final stdout line is JSON with absolute <code>path</code>, format, voice, speed, timings, <code>backend</code>, and <code>played</code>.</td><td>Non-zero exit on generation, validation, required-service, or playback failure. Auto fallback is explicit in JSON.</td></tr>
           <tr><td>Health</td><td><code>GET /health</code></td><td>Reports service identity, version, active model variant, and readiness.</td></tr>
           <tr><td>Speech</td><td><code>POST /v1/audio/speech</code></td><td>Accepts <code>input</code>, <code>voice</code>, <code>speed</code>, <code>response_format</code>, plus local <code>lang</code> and <code>play</code>.</td></tr>
           <tr><td>Voices</td><td><code>GET /voices</code></td><td>Returns voices exposed by the loaded model bundle.</td></tr>
@@ -137,8 +137,8 @@ curl http://127.0.0.1:8765/health</code></pre>
     <section>
       <h2>Verified behavior</h2>
       <div class="two">
-        <article class="card"><h3>Automated checks</h3><p>24 tests pass across atomic audio and service output, model selection, payload validation, localhost binding, live health and speech requests, CLI naming, service fallback, required-service failure, and playback reporting. CI runs Ruff and pytest on macOS and Linux with Python 3.11 and 3.13, then builds the wheel and source distribution.</p></article>
-        <article class="card"><h3>Real product checks</h3><p>The public <code>kokoro-cli==0.2.0</code> package was installed cache-free from PyPI into a fresh isolated tool environment. A fresh model setup downloaded and verified the pinned int8 assets, <code>kokoro doctor --json</code> passed every required check, and embedded inference produced a valid 5.696 s mono 24 kHz WAV.</p></article>
+        <article class="card"><h3>Automated checks</h3><p>31 tests pass across atomic audio and service output, persistent voice and speed defaults, model selection, payload validation, localhost binding, live health and speech requests, CLI naming, service fallback, required-service failure, and playback reporting. CI runs Ruff and pytest on macOS and Linux with Python 3.11 and 3.13, then builds the wheel and source distribution.</p></article>
+        <article class="card"><h3>Real product checks</h3><p>The public <code>kokoro-cli==0.3.0</code> package was installed cache-free from PyPI into a fresh isolated tool environment. A fresh model setup downloaded and verified the pinned int8 assets, <code>kokoro doctor --json</code> passed every required check, and embedded inference produced a valid mono 24 kHz WAV using saved speech defaults.</p></article>
       </div>
     </section>
 
@@ -150,7 +150,7 @@ curl http://127.0.0.1:8765/health</code></pre>
       </div>
     </section>
 
-    <footer>Repository capability record · Kokoro CLI 0.2.0 · updated 2026-07-24</footer>
+    <footer>Repository capability record · Kokoro CLI 0.3.0 · updated 2026-07-24</footer>
   </main>
 </body>
 </html>
