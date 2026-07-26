@@ -6,10 +6,10 @@
 Local text-to-speech for people and AI agents, powered by
 [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (only English is supported).
 
-Agent Voice creates WAV, MP3, Opus, or M4A recordings on macOS, Linux, and Windows without an API
-key.
+Agent Voice creates WAV, MP3, Opus, or M4A recordings on macOS, Linux, and
+Windows without an API key.
 
-[🔊 Listen to this introduction (MP3)](assets/agent-voice-intro.mp3?raw=1)
+https://github.com/user-attachments/assets/9f5f55bf-b283-4c9c-a380-5c9c5da80fd7
 
 ## Quick start
 
@@ -85,8 +85,8 @@ The service setting is stored as one object. Timed mode includes its duration:
 [View Agent Voice on skills.sh](https://skills.sh/b/yoav0gal/agent-voice).
 
 ```sh
-# Read text aloud when requested
-npx skills add yoav0gal/agent-voice --skill read-aloud --global --agent codex --yes
+# Create speech recordings or read text aloud
+npx skills add yoav0gal/agent-voice --skill agent-voice --global --agent codex --yes
 
 # Add audio to explicitly opted-in written responses
 npx skills add yoav0gal/agent-voice --skill spoken-responses --global --agent codex --yes

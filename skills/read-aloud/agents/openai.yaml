@@ -1,4 +1,0 @@
-interface:
-  display_name: "Read Aloud"
-  short_description: "Read or record text with Agent Voice"
-  default_prompt: "Use $read-aloud to read this text with Agent Voice and return the recording path."

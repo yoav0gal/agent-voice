@@ -181,15 +181,19 @@ def test_models_lists_registered_adapters_as_json(capsys):
     }
 
 
-def test_standalone_skill_uses_global_command():
+def test_agent_voice_skill_uses_global_command():
     project = Path(__file__).parents[1]
-    skill = (project / "skills/read-aloud/SKILL.md").read_text()
+    skill = (project / "skills/agent-voice/SKILL.md").read_text()
     readme = (project / "README.md").read_text()
 
-    assert "name: read-aloud" in skill
+    assert "name: agent-voice" in skill
+    assert "create a local speech recording" in skill
+    assert "read text aloud" in skill
+    assert "generate speech audio" in skill
     assert "/Users/" not in skill
     assert "./agent-voice" not in skill
     assert "agent-voice speak" in skill
+    assert 'agent-voice speak "Text to record" --json' in skill
     assert 'agent-voice speak "Text to read" --play --json' in skill
     assert "printf '%s' \"$TEXT\" | agent-voice speak --format mp3 --json" in skill
     assert "agent-voice speak --help" in skill
@@ -207,9 +211,10 @@ def test_standalone_skill_uses_global_command():
     assert "Default voice:" not in skill
     assert "Default speed:" not in skill
     assert (
-        "npx skills add yoav0gal/agent-voice --skill read-aloud "
+        "npx skills add yoav0gal/agent-voice --skill agent-voice "
         "--global --agent codex --yes"
     ) in readme
+    assert "skills/read-aloud" not in readme
     assert "https://skills.sh/b/yoav0gal/agent-voice" in readme
 
 
