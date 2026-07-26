@@ -26,16 +26,6 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
-      - name: Install FFmpeg on Linux
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes ffmpeg
-
-      - name: Install FFmpeg on macOS
-        if: runner.os == 'macOS'
-        run: brew install ffmpeg
-
       - name: Lint
         run: uv run --frozen ruff check src tests
 
@@ -63,13 +53,10 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
-      - name: Install FFmpeg
-        run: choco install ffmpeg --version=7.1.1 --yes --no-progress --allow-downgrade
-
       - name: Cache verified Kokoro model
         uses: actions/cache@v4
         with:
-          path: ${{ runner.temp }}/kokoro-data/models
+          path: ${{ runner.temp }}/agent-voice-data/models
           key: kokoro-v1-int8-windows
 
       - name: Lint
@@ -91,6 +78,6 @@ jobs:
       - name: Verify installed package with real model, audio, doctor, and service
         shell: pwsh
         env:
-          KOKORO_HOME: ${{ runner.temp }}/kokoro-data
+          AGENT_VOICE_HOME: ${{ runner.temp }}/agent-voice-data
         run: |
-          .ci-venv\Scripts\python.exe .github\scripts\verify_windows.py .ci-venv\Scripts\kokoro.exe
+          .ci-venv\Scripts\python.exe .github\scripts\verify_windows.py .ci-venv\Scripts\agent-voice.exe

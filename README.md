@@ -1,112 +1,108 @@
-# Kokoro CLI
+# Agent Voice
 
-[![skills.sh](https://skills.sh/b/yoav0gal/kokoro-cli)](https://skills.sh/yoav0gal/kokoro-cli)
+<img src="assets/brand/agent-voice-logo-voiceprint.png" alt="Agent Voice logo" width="720">
 
-Offline text-to-speech for people and AI agents. Kokoro CLI runs Kokoro-82M locally, creates WAV, MP3, Opus, or M4A recordings, plays them on the host, and exposes an optional localhost API.
 
-Audio generation is supported on Windows, macOS, and Linux with Python 3.11–3.13.
-Windows playback through `ffplay` is experimental because automated CI cannot
-prove audible output.
+Local text-to-speech for people and AI agents, powered by
+[Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (only English is supported).
+
+Agent Voice creates
+WAV, MP3, Opus, or M4A recordings on macOS, Linux, and Windows without an API
+key.
+
+[🔊 Listen to this introduction (MP3)](assets/agent-voice-intro.mp3?raw=1)
 
 ## Quick start
 
-Install the CLI from PyPI:
-
 ```sh
-uv tool install kokoro-cli
-kokoro setup
-kokoro speak "Hello from Kokoro." --play --json
+uv tool install agent-voice
+agent-voice setup
+agent-voice speak "Hello from Agent Voice." --play --json
 ```
 
-`kokoro setup` downloads and verifies the default model and voices, about 121 MB. Synthesis is offline after setup.
-
-Install [`uv`](https://docs.astral.sh/uv/) and optional FFmpeg on macOS with:
+## How to use
 
 ```sh
-brew install uv ffmpeg
+# See every recording option
+agent-voice speak --help
+
+# Create a recording
+agent-voice speak "The build is finished."
+
+# Create an MP3 with a readable filename
+agent-voice speak "Here is your summary." --format mp3 --label summary
+
+# Choose a voice, speed, and exact output
+agent-voice speak "A slower reading." \
+  --voice bf_emma --speed 0.85 --output recording.opus
+
+# Safely pass agent text through stdin
+printf '%s' "$VISIBLE_TEXT" |
+  agent-voice speak --format mp3 --json
 ```
 
-On Linux, use your package manager for FFmpeg. WAV works without it; MP3, Opus, M4A, and speeds above 2x require it. `pipx install kokoro-cli` is also supported.
+`--json` prints a machine-readable receipt containing the recording's absolute
+`path` and audio metadata.
 
-On Windows, install `uv`, then run the same `uv tool install kokoro-cli`
-command from PowerShell. Models, recordings, and configuration default to
-`%LOCALAPPDATA%\kokoro`. Install FFmpeg to enable compressed formats, speeds
-above 2x, and experimental `--play` support through `ffplay`.
-
-## Common commands
+Explore the available voices and models, manage defaults, or check that Agent
+Voice is ready:
 
 ```sh
-# Create and play a recording
-kokoro speak "The build is finished." --play
-
-# Pipe agent-friendly input and return a JSON receipt
-printf '%s' "Here is your summary." | kokoro speak --format mp3 --json
-
-# Choose a voice, speed, format, and output path
-kokoro speak "A slower reading." --voice bf_emma --speed 0.85 -o recording.opus
-
-# Discover voices and manage persistent defaults
-kokoro voices
-kokoro config --json
-kokoro config --voice bf_emma --speed 1.15
-kokoro config --reset
-
-# Verify the installation
-kokoro doctor --json
+agent-voice voices
+agent-voice models
+agent-voice config --voice bf_emma --speed 1.15
+agent-voice doctor --json
 ```
 
-The default is `af_heart` at `1.0x`; supported speeds are `0.5`–`4.0`. Run `kokoro <command> --help` for all options.
+## Defaults
 
-Recordings and models use the platform user-data directory. Override it with `KOKORO_HOME`, `KOKORO_MODEL_DIR`, or `KOKORO_RECORDING_DIR`.
+Run `agent-voice config` to view the active persisted settings and their
+configuration file.
 
-## Agent skill
+| Setting | Built-in default | Save as default | Override once |
+| --- | --- | --- | --- |
+| Voice | `af_heart` | `config --voice NAME` | `speak --voice NAME` |
+| Speed | `1.0×` | `config --speed NUMBER` | `speak --speed NUMBER` |
+| Audio format | WAV | `config --format FORMAT` | `speak --format FORMAT` |
+| Recording directory | Agent Voice's `recordings/` directory | `config --output-dir DIR` | `speak --output-dir DIR` |
+| Service | `timed` for `10` minutes | `config --service MODE [--service-timeout MINUTES]` | `speak --service MODE [--service-timeout MINUTES]` |
 
-Install the standalone [`read-aloud`](https://skills.sh/yoav0gal/kokoro-cli/read-aloud) skill globally for Codex:
+`on` leaves the service running, `off` uses embedded inference, and `timed`
+stops the service after the configured number of idle minutes.
+
+The service setting is stored as one object. Timed mode includes its duration:
+
+```json
+{
+  "service": {
+    "mode": "timed",
+    "timeout_minutes": 10
+  }
+}
+```
+
+## Agent skills
+
+[View Agent Voice on skills.sh](https://skills.sh/b/yoav0gal/agent-voice).
 
 ```sh
-npx skills add yoav0gal/kokoro-cli --skill read-aloud --global --agent codex --yes
-```
+# Read text aloud when requested
+npx skills add yoav0gal/agent-voice --skill read-aloud --global --agent codex --yes
 
-The skill is installed separately from this repository. It invokes the global `kokoro` command and installs `kokoro-cli` from PyPI when needed.
+# Add audio to explicitly opted-in written responses
+npx skills add yoav0gal/agent-voice --skill spoken-responses --global --agent codex --yes
+```
 
 ## Local API
 
-Start the localhost service:
-
 ```sh
-kokoro serve
-```
+agent-voice serve
 
-Then request speech through the OpenAI-shaped endpoint:
-
-```sh
-curl -sS http://127.0.0.1:8765/v1/audio/speech \
+curl http://127.0.0.1:8765/v1/audio/speech \
   -H 'Content-Type: application/json' \
-  -d '{"input":"Your agent has finished the task.","voice":"af_heart","response_format":"mp3"}' \
-  -o agent-message.mp3
+  -d '{"input":"The task is complete.","voice":"af_heart","response_format":"mp3"}' \
+  --output speech.mp3
 ```
 
-The service only accepts localhost connections. `speak` uses a healthy service automatically and falls back to embedded inference; use `--service required` or `--service off` for strict behavior.
-
-## Development
-
-```sh
-git clone https://github.com/yoav0gal/kokoro-cli.git
-cd kokoro-cli
-./kokoro setup
-./kokoro doctor --json
-uv run --frozen pytest -q
-```
-
-The checkout wrapper keeps its environment, models, and recordings inside the repository.
-On Windows, use `uv run --frozen kokoro setup` and
-`uv run --frozen kokoro doctor --json` from the checkout.
-
-## More
-
-- [Capabilities and product boundaries](https://github.com/yoav0gal/kokoro-cli/blob/main/docs/capabilities.html)
-- [ygent integration contract](https://github.com/yoav0gal/kokoro-cli/blob/main/docs/ygent-integration.md)
-- [Read-aloud skill source](https://github.com/yoav0gal/kokoro-cli/blob/main/skills/read-aloud/SKILL.md)
-- [Issues](https://github.com/yoav0gal/kokoro-cli/issues)
-
-Kokoro-82M weights are Apache 2.0, `kokoro-onnx` is MIT, and model assets come from the `model-files-v1.0` release of `thewh1teagle/kokoro-onnx`. See [third-party notices](https://github.com/yoav0gal/kokoro-cli/blob/main/THIRD_PARTY_NOTICES.md).
+The service binds only to localhost. `agent-voice speak` uses it automatically
+when available and falls back to embedded inference.

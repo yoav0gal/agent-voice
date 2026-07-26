@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 from pathlib import Path
 
 from . import __version__
+from .audio import inspect_audio_runtime
 from .client import ServiceUnavailable, health_check
-from .models import model_dir, models_ready, recording_dir
+from .model import SpeechModel
+from .paths import recording_dir
 
 
-def diagnose(variant: str, service_url: str) -> dict[str, object]:
+def diagnose(model: SpeechModel, service_url: str) -> dict[str, object]:
     checks: list[dict[str, str]] = []
     version_ok = (3, 11) <= sys.version_info[:2] < (3, 14)
     _check(
@@ -20,22 +21,13 @@ def diagnose(variant: str, service_url: str) -> dict[str, object]:
         f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
     )
 
-    try:
-        import kokoro_onnx  # noqa: F401
-    except ImportError as error:
-        _check(checks, "runtime", "fail", str(error))
-    else:
-        _check(checks, "runtime", "pass", "kokoro-onnx importable")
-
-    ready = models_ready(variant)
-    _check(
-        checks,
-        "model",
-        "pass" if ready else "warn",
-        f"{variant} verified in {model_dir()}"
-        if ready
-        else f"{variant} not ready; run kokoro setup --model {variant}",
-    )
+    for model_check in model.status().checks:
+        _check(
+            checks,
+            model_check.name,
+            model_check.status,
+            model_check.detail,
+        )
 
     output_directory = recording_dir()
     writable = _directory_is_writable(output_directory)
@@ -48,29 +40,32 @@ def diagnose(variant: str, service_url: str) -> dict[str, object]:
         else f"{output_directory} is not writable",
     )
 
-    ffmpeg = shutil.which("ffmpeg")
+    audio_runtime = inspect_audio_runtime()
     _check(
         checks,
         "compressed audio",
-        "pass" if ffmpeg else "warn",
-        ffmpeg or "ffmpeg not found; WAV output remains available",
+        "pass" if audio_runtime.ffmpeg_error is None else "fail",
+        (
+            f"FFmpeg {audio_runtime.ffmpeg_version} bundled by imageio-ffmpeg · "
+            f"{audio_runtime.ffmpeg_path}"
+            if audio_runtime.ffmpeg_error is None
+            else audio_runtime.ffmpeg_error or "bundled FFmpeg unavailable"
+        ),
     )
-    if sys.platform == "win32":
-        player = shutil.which("ffplay")
-        detail = (
-            f"{player}; Windows playback is experimental and not exercised by CI"
-            if player
-            else "ffplay not found; generation remains available and Windows playback is experimental"
-        )
-        _check(checks, "playback", "warn", detail)
-    else:
-        player = shutil.which("afplay") or shutil.which("ffplay")
-        _check(
-            checks,
-            "playback",
-            "pass" if player else "warn",
-            player or "no afplay/ffplay found; generation remains available",
-        )
+    _check(
+        checks,
+        "playback",
+        "pass" if audio_runtime.playback_error is None else "warn",
+        (
+            f"miniaudio {audio_runtime.miniaudio_version} · "
+            f"{audio_runtime.playback_backend}"
+            if audio_runtime.playback_error is None
+            else (
+                f"miniaudio {audio_runtime.miniaudio_version} installed; "
+                f"output device unavailable: {audio_runtime.playback_error}"
+            )
+        ),
+    )
 
     try:
         health = health_check(service_url)
@@ -81,7 +76,11 @@ def diagnose(variant: str, service_url: str) -> dict[str, object]:
             checks,
             "service",
             "pass",
-            f"{service_url} · version {health.get('version', 'unknown')} · model {health.get('variant', 'unknown')}",
+            (
+                f"{service_url} · version {health.get('version', 'unknown')} · "
+                f"model {health.get('model_id', health.get('model', 'unknown'))}/"
+                f"{health.get('variant', 'unknown')}"
+            ),
         )
 
     return {
@@ -92,7 +91,7 @@ def diagnose(variant: str, service_url: str) -> dict[str, object]:
 
 
 def format_report(report: dict[str, object]) -> str:
-    lines = [f"Kokoro CLI {report['version']}"]
+    lines = [f"Agent Voice {report['version']}"]
     markers = {"pass": "✓", "warn": "!", "fail": "✗"}
     for check in report["checks"]:  # type: ignore[union-attr]
         lines.append(

@@ -1,12 +1,12 @@
 [project]
-name = "kokoro-cli"
-version = "0.4.0"
-description = "Offline-first Kokoro text-to-speech CLI and localhost service"
+name = "agent-voice"
+version = "0.5.0"
+description = "Local, free voice artifacts for AI agents"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
 license-files = ["LICENSE"]
-keywords = ["agents", "cli", "kokoro", "speech", "text-to-speech", "tts"]
+keywords = ["agents", "audio", "cli", "kokoro", "speech", "text-to-speech", "tts"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",
@@ -22,19 +22,24 @@ classifiers = [
 ]
 dependencies = [
   "filelock>=3.20,<4",
+  "imageio-ffmpeg==0.6.0",
   "kokoro-onnx==0.5.0",
+  "miniaudio==1.71",
 ]
 
 [project.urls]
-Repository = "https://github.com/yoav0gal/kokoro-cli"
-Issues = "https://github.com/yoav0gal/kokoro-cli/issues"
+Repository = "https://github.com/yoav0gal/agent-voice"
+Issues = "https://github.com/yoav0gal/agent-voice/issues"
 
 [project.scripts]
-kokoro = "kokoro_cli.cli:main"
+agent-voice = "agent_voice.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build]
+exclude = ["/.agents", "/skills-lock.json"]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.12"]

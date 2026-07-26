@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A local listening room for comparing Kokoro voices.">
-  <title>Kokoro Voice Room</title>
+  <title>Agent Voice — Kokoro Voice Room</title>
   <style>
     :root {
       color-scheme: light;
@@ -379,7 +379,7 @@
   <header>
     <div class="shell">
       <nav aria-label="Page header">
-        <div class="brand"><span class="mark" aria-hidden="true"></span>Kokoro Voice Room</div>
+        <div class="brand"><span class="mark" aria-hidden="true"></span>Agent Voice · Kokoro Voice Room</div>
         <span class="local-pill">Generated locally</span>
       </nav>
       <div class="hero">
@@ -517,12 +517,12 @@
 
     <section class="script" aria-label="Sample script">
       <span class="script-label">Shared sample line</span>
-      <blockquote>“Hello! This is Kokoro. I can help narrate your ideas, messages, and stories with a clear and natural voice.”</blockquote>
+      <blockquote>“Hello from Agent Voice. This sample uses the local Kokoro speech engine.”</blockquote>
     </section>
   </main>
 
   <footer>
-    <div class="shell">Generated with Kokoro CLI · All samples are local MP3 files · Your choice stays in this browser</div>
+    <div class="shell">Generated with Agent Voice · Kokoro engine · All samples are local MP3 files · Your choice stays in this browser</div>
   </footer>
 
   <script>
@@ -561,7 +561,7 @@
       const card = cards.find((item) => item.dataset.voice === voice);
       const name = card.querySelector('.voice-name').textContent;
       title.textContent = `${name} is your current pick.`;
-      command.textContent = `kokoro speak "Your text" --voice ${voice} --play --json`;
+      command.textContent = `agent-voice speak "Your text" --voice ${voice} --play --json`;
       panel.classList.add('visible');
       localStorage.setItem('kokoroVoiceChoice', voice);
     }

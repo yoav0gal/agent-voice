@@ -3,38 +3,72 @@ from __future__ import annotations
 import hashlib
 import threading
 
-from kokoro_cli import models as models_module
-from kokoro_cli.models import MODEL_ASSETS, model_paths, project_root
+from agent_voice import kokoro as kokoro_module
+from agent_voice import paths as paths_module
+from agent_voice.kokoro import KOKORO_VARIANTS, KokoroAdapter
+from agent_voice.model import ModelSelection
+from agent_voice.paths import project_root
+from agent_voice.registry import MODEL_REGISTRY
 
 
 def test_default_model_is_compact_int8():
-    model, voices = model_paths()
-    assert model.name == "kokoro-v1.0.int8.onnx"
-    assert voices.name == "voices-v1.0.bin"
-    assert MODEL_ASSETS["int8"][1] < 100_000_000
-    assert len(MODEL_ASSETS["int8"][2]) == 64
+    descriptor = KokoroAdapter().descriptor
+
+    assert descriptor.selection == ModelSelection("kokoro", "int8")
+    assert KOKORO_VARIANTS == ("int8", "fp16", "full")
+
+
+def test_registry_is_the_model_composition_root():
+    assert MODEL_REGISTRY.model_ids == ("kokoro",)
+    assert MODEL_REGISTRY.select() == ModelSelection("kokoro", "int8")
+    assert MODEL_REGISTRY.select("kokoro", "fp16") == ModelSelection("kokoro", "fp16")
+    assert isinstance(
+        MODEL_REGISTRY.create(ModelSelection("kokoro", "full")),
+        KokoroAdapter,
+    )
 
 
 def test_unknown_model_is_rejected():
     try:
-        model_paths("tiny")
+        KokoroAdapter(ModelSelection("kokoro", "tiny"))
     except ValueError as error:
-        assert "Unknown model variant" in str(error)
+        assert "Unknown Kokoro variant" in str(error)
     else:
         raise AssertionError("expected ValueError")
 
 
+def test_setup_prepares_assets_once_per_adapter(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_VOICE_MODEL_DIR", str(tmp_path))
+    downloads = []
+
+    def download(asset, destination, force):
+        downloads.append((asset[0], destination, force))
+
+    monkeypatch.setattr(kokoro_module, "_download_asset", download)
+    model = KokoroAdapter(ModelSelection("kokoro", "int8"))
+
+    first = model.setup()
+    second = model.setup()
+
+    assert first == second
+    assert [item[0] for item in downloads] == [
+        "kokoro-v1.0.int8.onnx",
+        "voices-v1.0.bin",
+    ]
+    assert all(item[1].parent == tmp_path for item in downloads)
+
+
 def test_windows_uses_local_app_data(tmp_path, monkeypatch):
-    installed_module = tmp_path / "site-packages" / "kokoro_cli" / "models.py"
+    installed_module = tmp_path / "site-packages" / "agent_voice" / "paths.py"
     installed_module.parent.mkdir(parents=True)
     installed_module.touch()
     local_app_data = tmp_path / "LocalAppData"
-    monkeypatch.delenv("KOKORO_HOME", raising=False)
+    monkeypatch.delenv("AGENT_VOICE_HOME", raising=False)
     monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
-    monkeypatch.setattr(models_module, "__file__", str(installed_module))
-    monkeypatch.setattr(models_module.sys, "platform", "win32")
+    monkeypatch.setattr(paths_module, "__file__", str(installed_module))
+    monkeypatch.setattr(paths_module.sys, "platform", "win32")
 
-    assert project_root() == (local_app_data / "kokoro").resolve()
+    assert project_root() == (local_app_data / "agent-voice").resolve()
 
 
 def test_concurrent_downloads_share_one_verified_asset(tmp_path, monkeypatch):
@@ -71,12 +105,12 @@ def test_concurrent_downloads_share_one_verified_asset(tmp_path, monkeypatch):
         calls.append((args, kwargs))
         return Response()
 
-    monkeypatch.setattr(models_module.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(kokoro_module.urllib.request, "urlopen", urlopen)
     errors = []
 
     def download():
         try:
-            models_module._download_asset(asset, destination, False)
+            kokoro_module._download_asset(asset, destination, False)
         except Exception as error:  # pragma: no cover - surfaced by assertion below
             errors.append(error)
 

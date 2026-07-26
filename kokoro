@@ -1,6 +1,0 @@
-#!/bin/sh
-set -eu
-PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-: "${KOKORO_HOME:=$PROJECT_DIR}"
-export KOKORO_HOME
-exec uv run --project "$PROJECT_DIR" kokoro "$@"
