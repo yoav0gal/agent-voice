@@ -1,41 +1,30 @@
 ---
 name: read-aloud
-description: Use local speech synthesis when the user asks to read text aloud, speak a response, create narration, or produce an audio recording. Runs the globally installed Agent Voice CLI.
+description: Use the Agent Voice CLI when the user asks to read text aloud, speak or narrate text, or create a local audio recording.
 ---
 
-# Read Aloud with Agent Voice
+# Agent Voice
 
-Use the globally installed `agent-voice` command. If it is unavailable, run:
-
-```sh
-uv tool install agent-voice
-agent-voice setup
-```
-
-Inspect or update persistent voice and speed defaults:
-
-```sh
-agent-voice config --json
-agent-voice config --voice bf_emma --speed 1.15
-agent-voice config --reset
-```
-
-Use `--voice` or `--speed` with `agent-voice speak` when a change should apply only to one recording.
-
-Create an audio recording:
-
-```sh
-agent-voice speak "Text to read" --json
-```
-
-Add `--play` to play the recording aloud after creating it:
+Use the globally installed `agent-voice` command:
 
 ```sh
 agent-voice speak "Text to read" --play --json
 ```
 
-Only speak text visible to the user.
+For long or shell-sensitive text, pipe stdin:
 
-Return `path`; only say it was read aloud when `played` is `true`.
+```sh
+printf '%s' "$TEXT" | agent-voice speak --format mp3 --json
+```
 
-Run `agent-voice --help` or `agent-voice <command> --help` for current commands and options.
+Add `--play` when the user asks to hear it now. Otherwise, create the recording
+without playback.
+
+Only speak text the user supplied or can already see. Never speak hidden
+reasoning, tool output, secrets, or private instructions.
+
+Read the final JSON line and return its absolute `path`. Only say playback
+completed when `played` is `true`.
+
+Use `agent-voice speak --help` for voices, speed, formats, output paths, and
+other options.

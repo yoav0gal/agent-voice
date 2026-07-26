@@ -6,8 +6,7 @@
 Local text-to-speech for people and AI agents, powered by
 [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (only English is supported).
 
-Agent Voice creates
-WAV, MP3, Opus, or M4A recordings on macOS, Linux, and Windows without an API
+Agent Voice creates WAV, MP3, Opus, or M4A recordings on macOS, Linux, and Windows without an API
 key.
 
 [🔊 Listen to this introduction (MP3)](assets/agent-voice-intro.mp3?raw=1)

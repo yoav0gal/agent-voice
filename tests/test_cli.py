@@ -190,15 +190,17 @@ def test_standalone_skill_uses_global_command():
     assert "/Users/" not in skill
     assert "./agent-voice" not in skill
     assert "agent-voice speak" in skill
-    assert "uv tool install agent-voice" in skill
-    assert "agent-voice setup" in skill
-    assert "agent-voice config --json" in skill
-    assert "agent-voice config --reset" in skill
-    assert "agent-voice --help" in skill
+    assert 'agent-voice speak "Text to read" --play --json' in skill
+    assert "printf '%s' \"$TEXT\" | agent-voice speak --format mp3 --json" in skill
+    assert "agent-voice speak --help" in skill
     assert "--play" in skill
     assert "`played` is `true`" in skill
+    assert "absolute `path`" in skill
+    assert "user supplied or can already see" in skill
     assert "agent-voice voices" not in skill
     assert "agent-voice doctor" not in skill
+    assert "agent-voice config" not in skill
+    assert "uv tool install" not in skill
     assert "$VISIBLE_SCRIPT" not in skill
     assert "agent-voice serve" not in skill
     assert "--service" not in skill
