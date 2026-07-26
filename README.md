@@ -2,14 +2,13 @@
 
 <img src="assets/brand/agent-voice-logo-voiceprint.png" alt="Agent Voice logo" width="720">
 
+https://github.com/user-attachments/assets/975dcfd0-17ec-4912-b3b1-ec084077f858
 
 Local text-to-speech for people and AI agents, powered by
 [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (only English is supported).
 
 Agent Voice creates WAV, MP3, Opus, or M4A recordings on macOS, Linux, and
 Windows without an API key.
-
-https://github.com/user-attachments/assets/9f5f55bf-b283-4c9c-a380-5c9c5da80fd7
 
 ## Quick start
 
