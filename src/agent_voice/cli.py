@@ -31,6 +31,7 @@ from .config import (
     reset_defaults,
     update_defaults,
 )
+from .delivery import prepare_delivery
 from .model import ModelSelection, NamedVoice, SpeechModel, SynthesisRequest
 from .paths import recording_dir
 from .registry import MODEL_REGISTRY
@@ -45,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
             "examples:\n"
             "  agent-voice setup\n"
             "  printf '%s' \"$TEXT\" | agent-voice speak --format mp3 --json\n"
+            "  agent-voice play \"/path/to/recording.mp3\"\n"
             "  agent-voice doctor --json\n\n"
             "Agent speech: read the JSON path; only report playback when played=true."
         ),
@@ -57,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     setup = subparsers.add_parser(
         "setup",
-        help="download a speech model and its assets",
+        help="prepare speech assets",
         description="Download and verify the selected speech model.",
     )
     _add_model_arguments(setup)
@@ -224,6 +226,18 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument(
         "--json", action="store_true", help="print one JSON readiness report"
     )
+
+    play = subparsers.add_parser(
+        "play",
+        help="play an existing local recording",
+        description="Play a local recording through the default audio output.",
+    )
+    play.add_argument("recording", type=Path, help="local audio recording")
+    play.add_argument(
+        "--json",
+        action="store_true",
+        help="print a receipt after playback completes",
+    )
     return parser
 
 
@@ -232,9 +246,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     try:
         if args.command == "setup":
-            receipt = _model(args).setup(force=args.force)
-            for artifact in receipt.artifacts:
-                print(f"{artifact.label}: {artifact.path}")
+            _setup(args)
         elif args.command == "speak":
             _speak(args)
         elif args.command == "voices":
@@ -261,6 +273,8 @@ def main(argv: list[str] | None = None) -> None:
             print(json.dumps(report) if args.json else format_report(report))
             if not report["ok"]:
                 raise SystemExit(1)
+        elif args.command == "play":
+            _play(args)
     except (ValueError, RuntimeError, FileNotFoundError) as error:
         print(f"Error: {error}", file=sys.stderr)
         raise SystemExit(2) from error
@@ -395,6 +409,8 @@ def _speak(args: argparse.Namespace) -> None:
     if fallback_reason is not None:
         result["service_fallback"] = True
     if args.json:
+        result["file_uri"] = path.resolve().as_uri()
+        result["delivery"] = prepare_delivery(path)
         print(json.dumps(result))
     else:
         print(f"Created {path}")
@@ -472,6 +488,30 @@ def _config(args: argparse.Namespace) -> None:
         print(f"Output directory: {defaults.output_dir or 'default'}")
         print(f"Source: {payload['source']}")
         print(f"Config: {payload['path']}")
+
+
+def _setup(args: argparse.Namespace) -> None:
+    receipt = _model(args).setup(force=args.force)
+    for artifact in receipt.artifacts:
+        print(f"{artifact.label}: {artifact.path}")
+
+
+def _play(args: argparse.Namespace) -> None:
+    path = args.recording.expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"Recording not found: {path}")
+    if path.suffix.lower().lstrip(".") not in FORMATS:
+        raise ValueError(f"Recording must use one of: {', '.join(FORMATS)}")
+    try:
+        play_audio(path)
+    except KeyboardInterrupt:
+        print("Playback stopped", file=sys.stderr)
+        raise SystemExit(130) from None
+    receipt = {"path": str(path), "played": True}
+    if args.json:
+        print(json.dumps(receipt))
+    else:
+        print(f"Played {path}")
 
 
 def _display_number(value: object) -> str:

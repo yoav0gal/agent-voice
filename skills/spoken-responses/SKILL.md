@@ -1,12 +1,13 @@
 ---
 name: spoken-responses
-description: Use Agent Voice to attach matching local audio above written answers.
+description: Use Agent Voice to add matching local audio to explicitly requested written responses.
 ---
 
 # Spoken Responses
 
 Use Agent Voice to create a local MP3 containing every visible word of the
-final response, then attach its player above the written answer.
+final response, then attach it or provide its local recording details above
+the written answer.
 
 ## Scope
 
@@ -28,25 +29,47 @@ complete path and filename; it takes precedence, so omit `--label`.
 
 ## Respond
 
-1. Finalize the written response. Narrate every visible word in order, omitting
-   only Markdown syntax, the audio attachment, and application directives.
+1. Finalize the written response. Set `NARRATION` to every visible word in order,
+   omitting only Markdown syntax, the player link, and application directives.
 2. Pipe the narration through stdin without voice or speed flags so the CLI
    uses Agent Voice's configured voice and speed:
 
    ```sh
-   printf '%s' "$FINAL_RESPONSE" |
-     agent-voice speak --format mp3 --label "$RECORDING_LABEL" --json
+   printf '%s' "$NARRATION" |
+     agent-voice speak \
+       --format mp3 \
+       --label "$RECORDING_LABEL" \
+       --json
    ```
 
-3. Send only after the final JSON line contains an absolute `path`. Render it
-   before the written response:
+3. Continue only after the final JSON line contains an absolute MP3 `path` and
+   a `delivery` object. Treat the receipt as internal delivery data; do not
+   paste the full JSON into the response unless the user requests it.
+4. Use one of two delivery modes:
+   - When the surface explicitly supports native audio attachments, attach the
+     MP3 before the written response and use its native player. Do not probe
+     with image tools or inline the audio as base64.
+   - Otherwise, put the receipt's exact `delivery.fallback_markdown` before the
+     written response. Do not rewrite, combine, or omit its lines. It has this
+     shape:
 
-   ```markdown
-   ![Audio recording](</absolute/path.mp3>)
-   ```
+     ````markdown
+     Agent Voice recording recording.mp3
+     Listen: [media](file:///absolute/path/recording.mp3)
+     ```sh
+     agent-voice play "/absolute/path/recording.mp3"
+     ```
+     ````
+
+     The media link is standard Markdown over the receipt's `file_uri`; the
+     command works in any terminal with Agent Voice installed.
 
 - For an explicit operating-system playback request, add `--play`; report
   playback only when `played` is `true`.
+- To play an existing response, run `agent-voice play PATH --json`; report
+  success only when `played` is `true`.
+- `play` runs to completion. `Ctrl+C` stops it; running it again restarts from
+  the beginning. Do not promise pause.
 - If synthesis fails, send the written response with a brief failure note.
 
 ## Recovery

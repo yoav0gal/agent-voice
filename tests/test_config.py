@@ -42,7 +42,7 @@ def test_defaults_are_persisted_and_reset(tmp_path, monkeypatch):
     assert json.loads(config_path().read_text()) == {
         "voice": "bf_emma",
         "speed": 1.15,
-        "format": "wav",
+        "format": "mp3",
         "service": {
             "mode": "timed",
             "timeout_minutes": 10.0,
@@ -91,7 +91,7 @@ def test_existing_config_inherits_new_service_defaults(tmp_path, monkeypatch):
     config_path().write_text('{"voice": "bf_emma", "speed": 1.15}')
 
     assert load_defaults().service.timeout_minutes == 10.0
-    assert load_defaults().format == "wav"
+    assert load_defaults().format == "mp3"
     assert load_defaults().service.mode == "timed"
     assert load_defaults().output_dir is None
 

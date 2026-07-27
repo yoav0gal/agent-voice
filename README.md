@@ -1,6 +1,10 @@
 # Agent Voice
 
-<img src="assets/brand/agent-voice-logo-voiceprint.png" alt="Agent Voice logo" width="720">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-voice-logo-voiceprint-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-voice-logo-voiceprint.png">
+  <img src="assets/brand/agent-voice-logo-voiceprint.png" alt="Agent Voice logo" width="720">
+</picture>
 
 https://github.com/user-attachments/assets/975dcfd0-17ec-4912-b3b1-ec084077f858
 
@@ -10,6 +14,10 @@ Local text-to-speech for people and AI agents, powered by
 Agent Voice creates WAV, MP3, Opus, or M4A recordings on macOS, Linux, and
 Windows without an API key.
 
+Prebuilt dependencies cover macOS arm64/x64, Linux x64, and Windows x64.
+Linux arm64 currently needs a C build toolchain for miniaudio. Native Windows
+arm64 lacks an `imageio-ffmpeg` wheel; use x64 Python under Windows emulation.
+
 ## Quick start
 
 ```sh
@@ -17,6 +25,8 @@ uv tool install agent-voice
 agent-voice setup
 agent-voice speak "Hello from Agent Voice." --play --json
 ```
+
+`agent-voice setup` downloads and verifies the speech model.
 
 ## How to use
 
@@ -26,6 +36,9 @@ agent-voice speak --help
 
 # Create a recording
 agent-voice speak "The build is finished."
+
+# Play an existing recording
+agent-voice play "/absolute/path/recording.mp3"
 
 # Create an MP3 with a readable filename
 agent-voice speak "Here is your summary." --format mp3 --label summary
@@ -40,7 +53,25 @@ printf '%s' "$VISIBLE_TEXT" |
 ```
 
 `--json` prints a machine-readable receipt containing the recording's absolute
-`path` and audio metadata.
+`path`, percent-encoded `file_uri`, audio metadata, and
+`delivery.fallback_markdown`. Without `--json`, `speak` creates only the audio
+recording.
+
+Agents use exactly two delivery routes:
+
+1. Render `path` with the current surface's native audio player.
+2. Otherwise return `delivery.fallback_markdown` unchanged:
+
+   ````markdown
+   Agent Voice recording recording.mp3
+   Listen: [media](file:///absolute/path/recording.mp3)
+   ```sh
+   agent-voice play "/absolute/path/recording.mp3"
+   ```
+   ````
+
+The media link is standard Markdown over `file_uri`; the command works in any
+terminal with Agent Voice installed.
 
 Explore the available voices and models, manage defaults, or check that Agent
 Voice is ready:
@@ -61,7 +92,7 @@ configuration file.
 | --- | --- | --- | --- |
 | Voice | `af_heart` | `config --voice NAME` | `speak --voice NAME` |
 | Speed | `1.0×` | `config --speed NUMBER` | `speak --speed NUMBER` |
-| Audio format | WAV | `config --format FORMAT` | `speak --format FORMAT` |
+| Audio format | MP3 | `config --format FORMAT` | `speak --format FORMAT` |
 | Recording directory | Agent Voice's `recordings/` directory | `config --output-dir DIR` | `speak --output-dir DIR` |
 | Service | `timed` for `10` minutes | `config --service MODE [--service-timeout MINUTES]` | `speak --service MODE [--service-timeout MINUTES]` |
 
@@ -90,6 +121,9 @@ npx skills add yoav0gal/agent-voice --skill agent-voice --global --agent codex -
 # Add audio to explicitly opted-in written responses
 npx skills add yoav0gal/agent-voice --skill spoken-responses --global --agent codex --yes
 ```
+
+Use `--agent '*'` instead of `--agent codex` to install the same skills for all
+agent destinations recognized by the skills CLI.
 
 ## Local API
 

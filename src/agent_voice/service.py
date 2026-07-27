@@ -10,9 +10,11 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from . import __version__
 from .audio import CONTENT_TYPES, play_audio, write_audio
+from .client import LOCAL_HOSTS
 from .config import FORMATS, load_defaults
 from .model import NamedVoice, SpeechModel, SynthesisRequest
 
@@ -64,6 +66,9 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
         self.connection.settimeout(30)
 
     def do_GET(self) -> None:
+        if not self._host_is_local():
+            self._json(403, {"error": "Host must be localhost"})
+            return
         if self.path == "/health":
             descriptor = self.model.descriptor
             server = self.server
@@ -97,14 +102,12 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
             self._json(404, {"error": "Not found"})
 
     def do_POST(self) -> None:
+        if not self._host_is_local():
+            self._json(403, {"error": "Host must be localhost"})
+            return
         if self.path == "/lifecycle":
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-                if length <= 0 or length > self.max_body_bytes:
-                    raise ValueError("Request body must be between 1 and 100,000 bytes")
-                payload = json.loads(self.rfile.read(length))
-                if not isinstance(payload, dict):
-                    raise ValueError("JSON body must be an object")
+                payload = self._read_json()
                 idle_timeout_minutes = payload.get("idle_timeout_minutes")
                 server = self.server
                 if not isinstance(server, IdleHTTPServer):
@@ -132,10 +135,7 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
             self._json(404, {"error": "Not found"})
             return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > self.max_body_bytes:
-                raise ValueError("Request body must be between 1 and 100,000 bytes")
-            payload = json.loads(self.rfile.read(length))
+            payload = self._read_json()
             request = validate_payload(payload)
             audio = self._synthesize(request)
         except (ValueError, json.JSONDecodeError) as error:
@@ -189,6 +189,35 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
                 "generation_seconds": round(speech.elapsed_seconds, 3),
                 "played": request.play,
             },
+        )
+
+    def _read_json(self) -> dict[str, Any]:
+        content_type = self.headers.get("Content-Type", "")
+        if content_type.partition(";")[0].strip().lower() != "application/json":
+            raise ValueError("Content-Type must be application/json")
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0 or length > self.max_body_bytes:
+            raise ValueError("Request body must be between 1 and 100,000 bytes")
+        payload = json.loads(self.rfile.read(length))
+        if not isinstance(payload, dict):
+            raise ValueError("JSON body must be an object")
+        return payload
+
+    def _host_is_local(self) -> bool:
+        raw_host = self.headers.get("Host", "")
+        try:
+            parsed = urlsplit(f"//{raw_host}")
+            port = parsed.port
+        except ValueError:
+            return False
+        server = self.server
+        return (
+            isinstance(server, IdleHTTPServer)
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path in ("", "/")
+            and parsed.hostname in LOCAL_HOSTS
+            and port == server.server_port
         )
 
     def _json(self, status: int, payload: dict[str, Any]) -> None:
@@ -275,7 +304,6 @@ class IdleHTTPServer(ThreadingHTTPServer):
                 self._active_requests,
                 self.last_request_completed,
             )
-
 
 def create_server(
     model: SpeechModel,

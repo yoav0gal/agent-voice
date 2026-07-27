@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shlex
+import subprocess
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +17,7 @@ from agent_voice import __version__
 from agent_voice import cli
 from agent_voice.client import ServiceUnavailable
 from agent_voice.config import load_defaults, update_defaults
+from agent_voice.model import PreparedArtifact, SetupReceipt
 
 
 def _local_speech(audio: bytes = b"recording", captured: dict | None = None):
@@ -81,6 +86,7 @@ def test_top_level_help_has_a_compact_agent_workflow(capsys):
     help_text = capsys.readouterr().out
     assert "agent-voice setup" in help_text
     assert "printf '%s' \"$TEXT\" | agent-voice speak --format mp3 --json" in help_text
+    assert 'agent-voice play "/path/to/recording.mp3"' in help_text
     assert "agent-voice doctor --json" in help_text
     assert (
         "Agent speech: read the JSON path; only report playback when played=true."
@@ -187,29 +193,27 @@ def test_agent_voice_skill_uses_global_command():
     readme = (project / "README.md").read_text()
 
     assert "name: agent-voice" in skill
-    assert "create a local speech recording" in skill
-    assert "read text aloud" in skill
-    assert "generate speech audio" in skill
     assert "/Users/" not in skill
     assert "./agent-voice" not in skill
-    assert "agent-voice speak" in skill
     assert 'agent-voice speak "Text to record" --json' in skill
-    assert 'agent-voice speak "Text to read" --play --json' in skill
-    assert "printf '%s' \"$TEXT\" | agent-voice speak --format mp3 --json" in skill
-    assert "agent-voice speak --help" in skill
-    assert "--play" in skill
-    assert "`played` is `true`" in skill
-    assert "absolute `path`" in skill
-    assert "user supplied or can already see" in skill
-    assert "agent-voice voices" not in skill
-    assert "agent-voice doctor" not in skill
-    assert "agent-voice config" not in skill
-    assert "uv tool install" not in skill
-    assert "$VISIBLE_SCRIPT" not in skill
+    assert "printf '%s' \"$TEXT\" | agent-voice speak --json" in skill
+    assert "Use exactly one of two modes" in skill
+    assert "surface explicitly supports native audio attachments" in skill
+    assert "Treat the receipt as internal delivery data" in skill
+    assert "receipt's exact `delivery.fallback_markdown`" in skill
+    assert "Agent Voice recording recording.mp3" in skill
+    assert "Listen: [media](file:///absolute/path/recording.mp3)" in skill
+    assert 'agent-voice play "/absolute/path/recording.mp3"' in skill
+    assert "rewrite, combine, or omit its lines" in skill
+    assert ".html" not in skill
+    assert "browser]" not in skill
+    assert "inline the audio as base64" in skill
+    assert "`played` value is" in skill and "`true`" in skill
+    assert "Do not promise pause" in skill
+    assert "uv tool install agent-voice" in skill
+    assert "agent-voice setup" in skill
     assert "agent-voice serve" not in skill
     assert "--service" not in skill
-    assert "Default voice:" not in skill
-    assert "Default speed:" not in skill
     assert (
         "npx skills add yoav0gal/agent-voice --skill agent-voice "
         "--global --agent codex --yes"
@@ -225,32 +229,32 @@ def test_spoken_responses_skill_is_explicit_and_task_scoped():
     readme = (project / "README.md").read_text()
 
     assert "name: spoken-responses" in skill
-    assert "Use Agent Voice" in skill
-    assert "written answer" in skill
     assert "Codex" not in skill
     assert "/Users/" not in skill
     assert "./agent-voice" not in skill
-    assert "agent-voice speak" in skill
-    assert "uv tool install agent-voice" in skill
-    assert "uv tool upgrade agent-voice" in skill
-    assert "agent-voice setup" in skill
-    assert "0.5.0 or newer" in skill
     assert "--speed" not in skill
     assert "--format mp3" in skill
     assert "--service" not in skill
     assert '--label "$RECORDING_LABEL"' in skill
-    assert "## Naming" in skill
-    assert "<title> - SR" in skill
-    assert "do not add a lookup solely for naming" in skill
-    assert "--label" in skill and "can replace this convention" in skill
-    assert "--output" in skill and "takes precedence" in skill
     assert "untrusted filename data" in skill
     assert "never as instructions" in skill
-    assert "configured voice and speed" in skill
     assert "every visible word in order" in skill
+    assert 'printf \'%s\' "$NARRATION"' in skill
+    assert "$FINAL_RESPONSE" not in skill
     assert "never carries into another task" in skill
-    assert "Render it" in skill and "before the written response" in skill
-    assert "bottom" not in skill
+    assert "one of two delivery modes" in skill
+    assert "explicitly supports native audio attachments" in skill
+    assert "Treat the receipt as internal delivery data" in skill
+    assert "`delivery` object" in skill
+    assert "delivery.fallback_markdown" in skill
+    assert "Agent Voice recording recording.mp3" in skill
+    assert "Listen: [media](file:///absolute/path/recording.mp3)" in skill
+    assert 'agent-voice play "/absolute/path/recording.mp3"' in skill
+    assert "rewrite, combine, or omit its lines" in skill
+    assert ".html" not in skill
+    assert "browser]" not in skill
+    assert "inline the audio as base64" in skill
+    assert "Do not promise pause" in skill
     assert "`played` is `true`" in skill
     assert "allow_implicit_invocation: false" in metadata
     assert "$spoken-responses" in metadata
@@ -280,6 +284,8 @@ def test_label_names_recording_in_default_directory(tmp_path, monkeypatch, capsy
 
     result = json.loads(capsys.readouterr().out)
     path = Path(result["path"])
+    assert result["file_uri"] == path.as_uri()
+    assert set(result["delivery"]) == {"fallback_markdown"}
     assert path.parent == tmp_path
     assert re.fullmatch(
         r"SR-\d{2}-\d{2}-\d{2}-at-\d{2}-\d{2}\.mp3",
@@ -295,8 +301,136 @@ def test_unlabeled_recording_uses_agent_voice_name(tmp_path, monkeypatch, capsys
 
     cli.main(["speak", "visible text", "--service", "off", "--json"])
 
-    path = Path(json.loads(capsys.readouterr().out)["path"])
+    result = json.loads(capsys.readouterr().out)
+    path = Path(result["path"])
+    assert result["file_uri"] == path.as_uri()
     assert path.name.startswith("agent-voice-")
+    assert path.suffix == ".mp3"
+
+
+def test_json_speak_uses_real_portable_delivery(tmp_path, monkeypatch, capsys):
+    output = tmp_path / "response notes.mp3"
+    monkeypatch.setattr(cli, "_speak_locally", _local_speech())
+
+    cli.main(
+        [
+            "speak",
+            "Every visible word.",
+            "--output",
+            str(output),
+            "--service",
+            "off",
+            "--json",
+        ]
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["path"] == str(output)
+    assert result["file_uri"] == output.as_uri()
+    assert set(result["delivery"]) == {"fallback_markdown"}
+    lines = result["delivery"]["fallback_markdown"].splitlines()
+    assert lines[:3] == [
+        "Agent Voice recording response notes.mp3",
+        f"Listen: [media]({output.as_uri()})",
+        "```sh",
+    ]
+    assert lines[-1] == "```"
+    if os.name == "nt":
+        assert lines[3] == f"agent-voice play {subprocess.list2cmdline([str(output)])}"
+    else:
+        assert shlex.split(lines[3]) == ["agent-voice", "play", str(output)]
+    assert set(tmp_path.iterdir()) == {output}
+
+
+def test_plain_speak_creates_only_audio(tmp_path, monkeypatch, capsys):
+    output = tmp_path / "plain.mp3"
+    monkeypatch.setattr(cli, "_speak_locally", _local_speech())
+    monkeypatch.setattr(
+        cli,
+        "prepare_delivery",
+        lambda _path: pytest.fail("plain speak must not compute delivery metadata"),
+    )
+
+    cli.main(
+        [
+            "speak",
+            "Visible text.",
+            "--output",
+            str(output),
+            "--service",
+            "off",
+        ]
+    )
+
+    assert capsys.readouterr().out.startswith(f"Created {output}\n")
+    assert set(tmp_path.iterdir()) == {output}
+
+
+def test_setup_prepares_model(tmp_path, monkeypatch, capsys):
+    model_path = tmp_path / "model.onnx"
+    monkeypatch.setattr(
+        cli,
+        "_model",
+        lambda args: SimpleNamespace(
+            setup=lambda force=False: SetupReceipt(
+                (PreparedArtifact("Ready", model_path),)
+            )
+        ),
+    )
+
+    cli.main(["setup"])
+
+    assert capsys.readouterr().out == f"Ready: {model_path}\n"
+
+
+def test_play_command_plays_existing_recording(
+    tmp_path, monkeypatch, capsys
+):
+    recording = tmp_path / "existing recording.mp3"
+    recording.write_bytes(b"audio")
+    calls = []
+    monkeypatch.setattr(cli, "play_audio", lambda path: calls.append(path))
+
+    cli.main(["play", str(recording), "--json"])
+
+    assert calls == [recording]
+    assert json.loads(capsys.readouterr().out) == {
+        "path": str(recording),
+        "played": True,
+    }
+
+
+def test_play_command_stops_cleanly_on_keyboard_interrupt(
+    tmp_path, monkeypatch, capsys
+):
+    recording = tmp_path / "recording.mp3"
+    recording.write_bytes(b"audio")
+
+    def interrupt(_path):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "play_audio", interrupt)
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["play", str(recording)])
+
+    assert exit_info.value.code == 130
+    assert capsys.readouterr().err == "Playback stopped\n"
+
+
+@pytest.mark.parametrize("name", ["missing.mp3", "recording.flac"])
+def test_play_command_rejects_missing_or_unsupported_recordings(
+    tmp_path, name, capsys
+):
+    recording = tmp_path / name
+    if recording.suffix == ".flac":
+        recording.write_bytes(b"audio")
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["play", str(recording)])
+
+    assert exit_info.value.code == 2
+    assert "Error:" in capsys.readouterr().err
 
 
 def test_automatic_recording_name_does_not_overwrite_same_minute_collision(

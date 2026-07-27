@@ -1,6 +1,8 @@
+import json
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
 
 import numpy as np
@@ -90,6 +92,12 @@ def test_health_and_speech_contract(tmp_path):
     url = f"http://127.0.0.1:{server.server_port}"
     try:
         health = health_check(url)
+        hostile_host = urllib.request.Request(
+            f"{url}/health",
+            headers={"Host": f"attacker.example:{server.server_port}"},
+        )
+        with pytest.raises(urllib.error.HTTPError) as hostile:
+            urllib.request.urlopen(hostile_host, timeout=1)
         ensure_service(
             url,
             ModelSelection("test-model", "test-variant"),
@@ -102,6 +110,14 @@ def test_health_and_speech_contract(tmp_path):
             2.5,
         )
         assert server.idle_timeout_seconds == 150
+        unsafe_request = urllib.request.Request(
+            f"{url}/v1/audio/speech",
+            data=b'{"input":"browser request"}',
+            headers={"Content-Type": "text/plain"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as unsafe:
+            urllib.request.urlopen(unsafe_request, timeout=1)
         result = request_speech(
             url,
             "hello from the client",
@@ -123,6 +139,13 @@ def test_health_and_speech_contract(tmp_path):
     assert health["variant"] == "test-variant"
     assert health["service_mode"] == "on"
     assert health["service_timeout_minutes"] is None
+    assert hostile.value.code == 403
+    assert json.loads(hostile.value.read())["error"] == "Host must be localhost"
+    assert unsafe.value.code == 400
+    assert (
+        json.loads(unsafe.value.read())["error"]
+        == "Content-Type must be application/json"
+    )
     assert result["backend"] == "service"
     assert result["speed"] == 1.0
     assert result["sample_rate"] == 24_000

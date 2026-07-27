@@ -11,7 +11,7 @@ from .paths import project_root
 
 DEFAULT_VOICE = "af_heart"
 DEFAULT_SPEED = 1.0
-DEFAULT_FORMAT = "wav"
+DEFAULT_FORMAT = "mp3"
 DEFAULT_SERVICE = "timed"
 DEFAULT_SERVICE_TIMEOUT_MINUTES = 10.0
 MIN_SPEED = 0.5

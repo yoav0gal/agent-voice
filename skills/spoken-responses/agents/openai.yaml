@@ -1,6 +1,6 @@
 interface:
   display_name: "Spoken Responses"
-  short_description: "Add matching Agent Voice audio to Codex replies"
+  short_description: "Add matching Agent Voice audio to written replies"
   default_prompt: "Use $spoken-responses for this response."
 
 policy:
