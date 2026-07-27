@@ -10,6 +10,7 @@ import shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
+from socketserver import TCPServer
 from string import Template
 from urllib.parse import quote, unquote, urlsplit
 
@@ -27,6 +28,13 @@ class Server(ThreadingHTTPServer):
     def __init__(self, recordings: Path, port: int = 0) -> None:
         super().__init__(("127.0.0.1", port), Handler)
         self.recordings = recordings.resolve()
+
+    def server_bind(self) -> None:
+        # HTTPServer.server_bind resolves the bind address with getfqdn().
+        # The viewer is localhost-only, so avoid a DNS lookup that can block
+        # startup on otherwise healthy machines.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 class Handler(BaseHTTPRequestHandler):

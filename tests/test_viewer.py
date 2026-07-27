@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import json
+import socket
 import threading
 import urllib.error
 import urllib.request
@@ -178,6 +179,17 @@ def test_viewer_prefers_stable_port(tmp_path, monkeypatch):
     viewer_server.create_server(tmp_path)
 
     assert ports == [DEFAULT_VIEWER_PORT]
+
+
+def test_viewer_binding_does_not_resolve_localhost(tmp_path, monkeypatch):
+    def unexpected_lookup(host):
+        raise AssertionError(f"Unexpected DNS lookup for {host}")
+
+    monkeypatch.setattr(socket, "getfqdn", unexpected_lookup)
+
+    with Server(tmp_path) as server:
+        assert server.server_name == "127.0.0.1"
+        assert server.server_port > 0
 
 
 def test_viewer_falls_back_when_stable_port_is_busy(tmp_path, monkeypatch):
