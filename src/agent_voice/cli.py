@@ -4,19 +4,12 @@ import argparse
 import json
 import math
 import os
-import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
 from . import __version__
-from .audio import play_audio, write_audio
-from .client import (
-    DEFAULT_SERVICE_URL,
-    ServiceUnavailable,
-    ensure_service,
-    request_speech,
-)
+from .audio import play_audio
+from .client import DEFAULT_SERVICE_URL
 from .config import (
     DEFAULT_FORMAT,
     DEFAULT_SERVICE,
@@ -25,16 +18,15 @@ from .config import (
     MAX_SPEED,
     MIN_SPEED,
     SERVICE_MODES,
-    SpeechDefaults,
     config_path,
     load_defaults,
     reset_defaults,
     update_defaults,
 )
-from .delivery import prepare_delivery
-from .model import ModelSelection, NamedVoice, SpeechModel, SynthesisRequest
+from .model import ModelSelection, SpeechModel
 from .paths import resolved_recording_dir
 from .registry import MODEL_REGISTRY
+from .speaking import SpeakRequest, Speaker
 from .viewer import ensure_viewer, stop_viewer
 
 
@@ -357,112 +349,25 @@ def _models(args: argparse.Namespace) -> None:
 
 
 def _speak(args: argparse.Namespace) -> None:
-    defaults = load_defaults()
-    args.voice = args.voice if args.voice is not None else defaults.voice
-    args.speed = args.speed if args.speed is not None else defaults.speed
-    configured_service = defaults.service
-    requested_service = args.service
-    args.service = (
-        requested_service if requested_service is not None else configured_service.mode
-    )
-    requested_service_timeout = args.service_timeout
-    if requested_service_timeout is not None and args.service != "timed":
-        raise ValueError("--service-timeout can only be used with --service timed")
-    if args.service == "timed":
-        if requested_service_timeout is not None:
-            args.service_timeout = requested_service_timeout
-        elif configured_service.mode == "timed":
-            args.service_timeout = configured_service.timeout_minutes
-        else:
-            args.service_timeout = DEFAULT_SERVICE_TIMEOUT_MINUTES
-    else:
-        args.service_timeout = None
-    output, audio_format, managed_output = _resolve_output(args, defaults)
-    selection = _model_selection(args)
-
-    fallback_reason: str | None = None
-    result: dict[str, object]
-    try:
-        text = args.text if args.text is not None else sys.stdin.read()
-        if args.service != "off":
-            try:
-                idle_timeout = args.service_timeout if args.service == "timed" else None
-                ensure_service(args.service_url, selection, idle_timeout)
-                result = request_speech(
-                    args.service_url,
-                    text,
-                    output,
-                    audio_format,
-                    args.voice,
-                    args.speed,
-                    args.lang,
-                    selection=selection,
-                )
-            except ServiceUnavailable as error:
-                fallback_reason = str(error)
-                print(
-                    f"Agent Voice service unavailable; using embedded inference ({error})",
-                    file=sys.stderr,
-                )
-                result = _speak_locally(args, text, output, audio_format)
-        else:
-            result = _speak_locally(args, text, output, audio_format)
-    except BaseException:
-        if managed_output:
-            output.unlink(missing_ok=True)
-        raise
-
-    result.setdefault("model_id", selection.model_id)
-    result.setdefault("variant", selection.variant)
-    path = Path(str(result["path"]))
-    if args.play:
-        play_audio(path)
-    result["played"] = args.play
-    if fallback_reason is not None:
-        result["service_fallback"] = True
-    result["file_uri"] = path.resolve().as_uri()
-    delivery = prepare_delivery(
-        path,
-        text,
-        audio_format=audio_format,
-        recordings_dir=_managed_recording_directory(defaults),
-    )
-    if delivery.warning is not None:
-        print(f"Warning: {delivery.warning}", file=sys.stderr)
-    result["delivery"] = {"fallback_markdown": delivery.fallback_markdown}
-    if delivery.browser_url is not None:
-        result["delivery"].update(
-            {
-                "browser_url": delivery.browser_url,
-                "audio_url": delivery.audio_url,
-                "recording_path": str(delivery.recording_path),
-            }
-        )
-    print(json.dumps(result))
-
-
-def _speak_locally(
-    args: argparse.Namespace, text: str, output: Path, audio_format: str
-) -> dict[str, object]:
-    speech = _model(args).synthesize(
-        SynthesisRequest(
+    text = args.text if args.text is not None else sys.stdin.read()
+    receipt = Speaker().speak(
+        SpeakRequest(
             text=text,
-            voice=NamedVoice(args.voice),
+            selection=_model_selection(args),
+            output=args.output,
+            label=args.label,
+            output_dir=args.output_dir,
+            format=args.format,
+            voice=args.voice,
             speed=args.speed,
             language=args.lang,
+            play=args.play,
+            service=args.service,
+            service_timeout_minutes=args.service_timeout,
+            service_url=args.service_url,
         )
     )
-    path = write_audio(speech.samples, speech.sample_rate, output, audio_format)
-    return {
-        "path": str(path),
-        "format": audio_format,
-        "voice": args.voice,
-        "speed": args.speed,
-        "sample_rate": speech.sample_rate,
-        "duration_seconds": round(speech.duration_seconds, 3),
-        "generation_seconds": round(speech.elapsed_seconds, 3),
-        "backend": "local",
-    }
+    print(json.dumps(receipt.to_dict()))
 
 
 def _config(args: argparse.Namespace) -> None:
@@ -567,57 +472,11 @@ def _configured_output_dir(value: str) -> Path | None:
     return Path(value).expanduser().resolve()
 
 
-def _resolve_output(
-    args: argparse.Namespace, defaults: SpeechDefaults
-) -> tuple[Path, str, bool]:
-    audio_format = args.format if args.format is not None else defaults.format
-    if args.output:
-        ignored = [
-            option
-            for option, supplied in (
-                ("--label", bool(args.label)),
-                ("--output-dir", args.output_dir is not None),
-            )
-            if supplied
-        ]
-        if ignored:
-            print(
-                f"Warning: --output specifies the exact destination; ignoring "
-                f"{' and '.join(ignored)}",
-                file=sys.stderr,
-            )
-        suffix = args.output.suffix.lower().lstrip(".")
-        if suffix:
-            if suffix not in FORMATS:
-                raise ValueError(
-                    f"Output extension must be one of: {', '.join(FORMATS)}"
-                )
-            audio_format = suffix
-        return args.output, audio_format, False
-
-    if args.output_dir is not None:
-        directory = args.output_dir.expanduser().resolve()
-    else:
-        directory = resolved_recording_dir(defaults.output_dir)
-    timestamp = datetime.now().strftime("%m-%d-%y-at-%H-%M")
-    label = _filename_label(args.label) if args.label else "agent-voice"
-    return (
-        _reserve_recording_path(label, timestamp, audio_format, directory),
-        audio_format,
-        True,
-    )
-
-
-def _managed_recording_directory(defaults: SpeechDefaults | None = None) -> Path:
-    configured = load_defaults() if defaults is None else defaults
-    return resolved_recording_dir(configured.output_dir)
-
-
 def _viewer(args: argparse.Namespace) -> None:
     if args.viewer_action == "stop":
         report = stop_viewer()
     else:
-        report = ensure_viewer(_managed_recording_directory())
+        report = ensure_viewer(resolved_recording_dir(load_defaults().output_dir))
 
     if args.json:
         print(json.dumps(report.to_dict()))
@@ -627,43 +486,5 @@ def _viewer(args: argparse.Namespace) -> None:
         print(f"Recordings: {report.recordings_dir}")
     else:
         print("Recording viewer: stopped")
-
-
-def _filename_label(value: str) -> str:
-    label = re.sub(r"[^A-Za-z0-9]+", "-", value).strip("-")
-    label = label[:48].rstrip("-")
-    if not label:
-        raise ValueError("Label must contain at least one ASCII letter or number")
-    return label
-
-
-def _reserve_recording_path(
-    label: str,
-    timestamp: str,
-    audio_format: str,
-    directory: Path,
-) -> Path:
-    try:
-        directory.mkdir(parents=True, exist_ok=True)
-    except OSError as error:
-        raise RuntimeError(
-            f"Could not create output directory {directory}: {error}"
-        ) from error
-    if not directory.is_dir():
-        raise ValueError(f"Output directory is not a directory: {directory}")
-    stem = f"{label}-{timestamp}"
-    collision = 2
-    output = directory / f"{stem}.{audio_format}"
-    while True:
-        try:
-            descriptor = os.open(output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError:
-            output = directory / f"{stem}-{collision}.{audio_format}"
-            collision += 1
-        else:
-            os.close(descriptor)
-            return output
-
-
 if __name__ == "__main__":
     main()

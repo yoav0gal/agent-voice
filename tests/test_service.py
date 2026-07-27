@@ -250,10 +250,10 @@ def test_health_and_speech_contract(tmp_path):
         json.loads(unsafe.value.read())["error"]
         == "Content-Type must be application/json"
     )
-    assert result["backend"] == "service"
-    assert result["speed"] == 1.0
-    assert result["sample_rate"] == 24_000
-    assert result["duration_seconds"] == 0.1
+    assert result.backend == "service"
+    assert result.speed == 1.0
+    assert result.sample_rate == 24_000
+    assert result.duration_seconds == 0.1
     assert (tmp_path / "service.wav").stat().st_size > 44
 
 

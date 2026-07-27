@@ -64,6 +64,32 @@ class Speech:
 
 
 @dataclass(frozen=True)
+class Recording:
+    """One completed speech recording, independent of its generation backend."""
+
+    path: Path
+    format: str
+    voice: str
+    speed: float
+    sample_rate: int | None
+    duration_seconds: float | None
+    generation_seconds: float | None
+    backend: Literal["local", "service"]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "path": str(self.path),
+            "format": self.format,
+            "voice": self.voice,
+            "speed": self.speed,
+            "sample_rate": self.sample_rate,
+            "duration_seconds": self.duration_seconds,
+            "generation_seconds": self.generation_seconds,
+            "backend": self.backend,
+        }
+
+
+@dataclass(frozen=True)
 class ModelDescriptor:
     selection: ModelSelection
     display_name: str

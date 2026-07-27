@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from filelock import FileLock, Timeout as FileLockTimeout
 
 from .audio import write_audio_bytes
-from .model import ModelSelection
+from .model import ModelSelection, Recording
 from .paths import project_root
 
 DEFAULT_SERVICE_URL = "http://127.0.0.1:8765"
@@ -173,7 +173,7 @@ def request_speech(
     *,
     selection: ModelSelection | None = None,
     timeout: float = 300,
-) -> dict[str, object]:
+) -> Recording:
     if selection is not None:
         _require_matching_model(health_check(service_url), selection)
     url = validate_service_url(service_url) + "/v1/audio/speech"
@@ -209,20 +209,20 @@ def request_speech(
 
     path = write_audio_bytes(data, destination)
     response_speed = _number_header(headers.get("X-Agent-Voice-Speed"), float)
-    return {
-        "path": str(path),
-        "format": audio_format,
-        "voice": headers.get("X-Agent-Voice-Voice", voice),
-        "speed": speed if response_speed is None else response_speed,
-        "sample_rate": _number_header(headers.get("X-Agent-Voice-Sample-Rate"), int),
-        "duration_seconds": _number_header(
+    return Recording(
+        path=path,
+        format=audio_format,
+        voice=headers.get("X-Agent-Voice-Voice", voice),
+        speed=speed if response_speed is None else response_speed,
+        sample_rate=_number_header(headers.get("X-Agent-Voice-Sample-Rate"), int),
+        duration_seconds=_number_header(
             headers.get("X-Agent-Voice-Duration"), float
         ),
-        "generation_seconds": _number_header(
+        generation_seconds=_number_header(
             headers.get("X-Agent-Voice-Generation-Seconds"), float
         ),
-        "backend": "service",
-    }
+        backend="service",
+    )
 
 
 def _configure_service_lifecycle(
