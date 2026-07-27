@@ -11,9 +11,11 @@ from pathlib import Path
 import pytest
 
 from agent_voice.viewer import (
+    Viewer,
     ensure_viewer,
+    publish_player,
     publish_recording,
-    publish_transcript,
+    recording_urls,
     stop_viewer,
     transcript_path,
 )
@@ -48,7 +50,7 @@ def test_viewer_serves_supported_audio_and_dynamic_player(
 ):
     recording = tmp_path / name
     recording.write_bytes(b"0123456789")
-    publish_transcript(
+    player_name = publish_player(
         recording,
         'Visible <script>alert("no")</script> response.',
     )
@@ -59,7 +61,9 @@ def test_viewer_serves_supported_audio_and_dynamic_player(
             assert response.headers["Content-Type"] == content_type
             assert response.read() == b"0123456789"
 
-        with urllib.request.urlopen(f"{url}/player/{name}") as response:
+        with urllib.request.urlopen(
+            f"{url}/player/{player_name}"
+        ) as response:
             document = response.read().decode()
             assert response.headers["Content-Type"] == "text/html; charset=utf-8"
             assert "<audio controls preload=\"metadata\">" in document
@@ -81,6 +85,38 @@ def test_viewer_serves_supported_audio_and_dynamic_player(
     assert transcript_path(recording).read_text() == (
         'Visible <script>alert("no")</script> response.'
     )
+
+
+def test_viewer_keeps_legacy_player_links_working(tmp_path):
+    recording = tmp_path / "legacy.mp3"
+    recording.write_bytes(b"audio")
+
+    with _running_viewer(tmp_path) as (_, url):
+        with urllib.request.urlopen(f"{url}/player/legacy.mp3") as response:
+            assert response.status == 200
+            assert response.headers["Content-Type"] == "text/html; charset=utf-8"
+
+
+def test_player_urls_keep_audio_formats_distinct(tmp_path):
+    viewer = Viewer(tmp_path, 49123, 123)
+    mp3 = tmp_path / "sample.mp3"
+    wav = tmp_path / "sample.wav"
+    mp3.write_bytes(b"mp3")
+    wav.write_bytes(b"wav")
+
+    mp3_name = publish_player(mp3, "MP3")
+    wav_name = publish_player(wav, "WAV")
+    mp3_url, _ = recording_urls(viewer, mp3, mp3_name)
+    wav_url, _ = recording_urls(viewer, wav, wav_name)
+
+    assert mp3_url.endswith("/player/sample.html")
+    assert wav_url.endswith("/player/sample-2.html")
+
+    with _running_viewer(tmp_path) as (_, url):
+        with urllib.request.urlopen(f"{url}/player/sample.html") as response:
+            assert 'src="/recordings/sample.mp3"' in response.read().decode()
+        with urllib.request.urlopen(f"{url}/player/sample-2.html") as response:
+            assert 'src="/recordings/sample.wav"' in response.read().decode()
 
 
 def test_viewer_supports_head(tmp_path):
@@ -106,6 +142,7 @@ def test_viewer_supports_head(tmp_path):
         "/recordings/secret.txt",
         "/recordings/missing.mp3",
         "/recordings/sample.mp3?download=1",
+        "/player/missing.html",
     ],
 )
 def test_viewer_rejects_paths_outside_supported_recordings(tmp_path, path):

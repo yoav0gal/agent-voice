@@ -12,7 +12,7 @@ from .media import CONTENT_TYPES
 from .viewer import (
     ensure_viewer,
     publish_recording,
-    publish_transcript,
+    publish_player,
     recording_urls,
 )
 
@@ -49,9 +49,9 @@ def prepare_delivery(
 
     try:
         published = publish_recording(path, resolved_format, recordings_dir)
-        publish_transcript(published, text)
+        player_name = publish_player(published, text)
         viewer = ensure_viewer(published.parent)
-        browser_url, audio_url = recording_urls(viewer, published)
+        browser_url, audio_url = recording_urls(viewer, published, player_name)
     except (OSError, RuntimeError) as error:
         return Delivery(
             _local_fallback_markdown(path),

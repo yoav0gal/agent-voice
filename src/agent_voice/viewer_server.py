@@ -15,7 +15,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 from . import __version__
 from .media import CONTENT_TYPES
-from .viewer import transcript_path
+from .viewer import player_mapping_path, transcript_path
 
 
 DEFAULT_VIEWER_PORT = 8779
@@ -75,7 +75,12 @@ class Handler(BaseHTTPRequestHandler):
             ),
             None,
         )
-        recording = self._recording(url.path.removeprefix(prefix or ""), server)
+        encoded = url.path.removeprefix(prefix or "")
+        recording = (
+            self._player_recording(encoded, server)
+            if prefix == "/player/"
+            else self._recording(encoded, server)
+        )
         if prefix is None or recording is None:
             self.send_error(404)
         elif prefix == "/player/":
@@ -86,6 +91,30 @@ class Handler(BaseHTTPRequestHandler):
                 CONTENT_TYPES[recording.suffix.lower().lstrip(".")],
                 head,
             )
+
+    def _player_recording(self, encoded: str, server: Server) -> Path | None:
+        try:
+            name = unquote(encoded, errors="strict")
+        except (UnicodeError, ValueError):
+            return None
+        if name.endswith(".html"):
+            player_name = name.removesuffix(".html")
+            if (
+                not player_name
+                or "/" in player_name
+                or "\\" in player_name
+                or Path(player_name).name != player_name
+            ):
+                return None
+            try:
+                recording_name = player_mapping_path(
+                    server.recordings,
+                    player_name,
+                ).read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                return None
+            encoded = quote(recording_name, safe="")
+        return self._recording(encoded, server)
 
     def _recording(self, encoded: str, server: Server) -> Path | None:
         try:

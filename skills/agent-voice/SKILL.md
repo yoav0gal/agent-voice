@@ -74,7 +74,7 @@ Use exactly one of two modes:
    ---
 
    Agent Voice recording recording.mp3
-   Listen: [web player](http://127.0.0.1:8779/player/recording.mp3) · [media app](file:///absolute/path/recording.mp3) · [raw audio](http://127.0.0.1:8779/recordings/recording.mp3)
+   Listen: [web player](http://127.0.0.1:8779/player/recording.html) · [media app](file:///absolute/path/recording.mp3) · [raw audio](http://127.0.0.1:8779/recordings/recording.mp3)
    ```sh
    agent-voice play "/absolute/path/recording.mp3"
    ```

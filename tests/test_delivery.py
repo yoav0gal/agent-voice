@@ -31,7 +31,7 @@ def test_prepare_delivery_uses_http_player_audio_and_file_links(
     assert result.warning is None
     assert result.recording_path == recording
     assert result.browser_url == (
-        "http://127.0.0.1:49123/player/Daily%20update%20%26%20notes.mp3"
+        "http://127.0.0.1:49123/player/Daily%20update%20%26%20notes.html"
     )
     assert result.audio_url == (
         "http://127.0.0.1:49123/recordings/Daily%20update%20%26%20notes.mp3"

@@ -22,6 +22,7 @@ from .paths import project_root, recording_dir
 
 
 _TRANSCRIPT_DIRECTORY = ".agent-voice-viewer"
+_PLAYER_DIRECTORY = "players"
 
 
 @dataclass(frozen=True)
@@ -172,18 +173,57 @@ def publish_transcript(recording: Path, text: str) -> Path:
     return destination
 
 
+def publish_player(recording: Path, text: str) -> str:
+    publish_transcript(recording, text)
+    root = transcript_path(recording).parent / _PLAYER_DIRECTORY
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    base = recording.stem
+    name = base
+    counter = 2
+    while True:
+        mapping = root / f"{name}.txt"
+        try:
+            handle = os.open(
+                mapping,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+        except FileExistsError:
+            try:
+                if mapping.read_text(encoding="utf-8") == recording.name:
+                    return f"{name}.html"
+            except OSError:
+                pass
+            name = f"{base}-{counter}"
+            counter += 1
+        else:
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                stream.write(recording.name)
+                stream.flush()
+                os.fsync(stream.fileno())
+            return f"{name}.html"
+
+
 def transcript_path(recording: Path) -> Path:
     path = recording.expanduser().resolve()
     digest = hashlib.sha256(path.name.encode()).hexdigest()
     return path.parent / _TRANSCRIPT_DIRECTORY / f"{digest}.txt"
 
 
-def recording_urls(viewer: Viewer, recording: Path) -> tuple[str, str]:
+def player_mapping_path(recordings: Path, player_name: str) -> Path:
+    return recordings / _TRANSCRIPT_DIRECTORY / _PLAYER_DIRECTORY / f"{player_name}.txt"
+
+
+def recording_urls(
+    viewer: Viewer,
+    recording: Path,
+    player_name: str,
+) -> tuple[str, str]:
     if not viewer.url:
         raise RuntimeError("Recording viewer is not running")
     name = quote(recording.name, safe="")
     return (
-        f"{viewer.url}/player/{name}",
+        f"{viewer.url}/player/{quote(player_name, safe='')}",
         f"{viewer.url}/recordings/{name}",
     )
 

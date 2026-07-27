@@ -69,7 +69,7 @@ Agents use exactly two delivery routes:
 
    ````markdown
    Agent Voice recording recording.mp3
-   Listen: [web player](http://127.0.0.1:8779/player/recording.mp3) · [media app](file:///absolute/path/recording.mp3) · [raw audio](http://127.0.0.1:8779/recordings/recording.mp3)
+   Listen: [web player](http://127.0.0.1:8779/player/recording.html) · [media app](file:///absolute/path/recording.mp3) · [raw audio](http://127.0.0.1:8779/recordings/recording.mp3)
    ```sh
    agent-voice play "/absolute/path/recording.mp3"
    ```
@@ -80,6 +80,10 @@ occupied, it selects a free port and reports it in the receipt. The web player
 renders the complete branded document, the media-app link opens the local file
 with the operating system default, and raw audio serves the recording directly
 over HTTP.
+
+The virtual player URL uses the recording name with an `.html` extension. If
+that name already belongs to another format, Agent Voice adds `-2`, `-3`, and
+so on.
 
 Manage the lightweight viewer explicitly when needed:
 

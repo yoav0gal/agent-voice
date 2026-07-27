@@ -278,7 +278,7 @@ def test_json_speak_uses_http_delivery_without_writing_html(
         "recording_path",
     }
     assert result["delivery"]["browser_url"] == (
-        "http://127.0.0.1:49123/player/response%20notes.mp3"
+        "http://127.0.0.1:49123/player/response%20notes.html"
     )
     assert result["delivery"]["audio_url"] == (
         "http://127.0.0.1:49123/recordings/response%20notes.mp3"
