@@ -57,7 +57,7 @@ complete path and filename; it takes precedence, so omit `--label`.
      ---
 
      Agent Voice recording recording.mp3
-     Listen: [browser](file:///absolute/path/recording.html) · [media](file:///absolute/path/recording.mp3)
+     Listen: [web player](http://127.0.0.1:8779/player/recording.mp3) · [media app](file:///absolute/path/recording.mp3) · [raw audio](http://127.0.0.1:8779/recordings/recording.mp3)
      ```sh
      agent-voice play "/absolute/path/recording.mp3"
      ```
@@ -65,9 +65,11 @@ complete path and filename; it takes precedence, so omit `--label`.
      ---
      ````
 
-     The browser link opens the generated same-directory HTML player without a
-     recording server. The media link is standard Markdown over the receipt's
-     `file_uri`; the command works in any terminal with Agent Voice installed.
+     The viewer prefers localhost port `8779` and falls back to a free port if
+     it is occupied. The receipt contains the current URLs. The web player
+     renders the branded document with its audio player and response text, the
+     media-app link opens the local file with the operating system default, and
+     raw audio serves the recording directly in a browser.
 
 - For an explicit operating-system playback request, add `--play`; report
   playback only when `played` is `true`.

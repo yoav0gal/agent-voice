@@ -1,134 +1,178 @@
+from __future__ import annotations
+
 import os
-import re
 import shlex
-import stat
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 
 from agent_voice import delivery
+from agent_voice.viewer import Viewer
 
 
-def test_prepare_delivery_creates_escaped_local_player_and_fallback(tmp_path):
+def _viewer(root: Path) -> Viewer:
+    return Viewer(root.resolve(), 49123, 123)
+
+
+def test_prepare_delivery_uses_http_player_audio_and_file_links(
+    tmp_path, monkeypatch
+):
     recording = tmp_path / "Daily update & notes.mp3"
     recording.write_bytes(b"audio")
+    monkeypatch.setattr(delivery, "ensure_viewer", _viewer)
 
     result = delivery.prepare_delivery(
         recording,
-        'Visible <script>alert("no")</script> text.',
+        "Visible response text.",
+        recordings_dir=tmp_path,
     )
 
-    player = recording.with_suffix(".html")
-    document = player.read_text()
     assert result.warning is None
-    assert "<audio controls preload=\"metadata\">" in document
-    assert 'src="Daily%20update%20%26%20notes.mp3"' in document
-    assert 'type="audio/mpeg"' in document
-    assert "&lt;script&gt;" in document
-    assert "<script>" not in document
-    assert "base64" not in document
-    lines = result.fallback_markdown.splitlines()
-    assert lines[:5] == [
-        "---",
-        "",
-        "Agent Voice recording Daily update & notes.mp3",
-        f"Listen: [browser]({player.as_uri()}) · [media]({recording.as_uri()})",
-        "```sh",
-    ]
-    assert lines[-3:] == ["```", "", "---"]
+    assert result.recording_path == recording
+    assert result.browser_url == (
+        "http://127.0.0.1:49123/player/Daily%20update%20%26%20notes.mp3"
+    )
+    assert result.audio_url == (
+        "http://127.0.0.1:49123/recordings/Daily%20update%20%26%20notes.mp3"
+    )
+    assert (
+        f"Listen: [web player]({result.browser_url})"
+        f" · [media app]({recording.as_uri()})"
+        f" · [raw audio]({result.audio_url})"
+    ) in result.fallback_markdown
+    command = result.fallback_markdown.split("```sh\n", 1)[1].splitlines()[0]
     if os.name == "nt":
-        assert lines[5] == (
+        assert command == (
             f"agent-voice play {subprocess.list2cmdline([str(recording.resolve())])}"
         )
     else:
-        assert shlex.split(lines[5]) == [
+        assert shlex.split(command) == [
             "agent-voice",
             "play",
             str(recording.resolve()),
         ]
+    assert list(tmp_path.glob("*.html")) == []
 
 
-def test_prepare_delivery_preserves_existing_player_name(tmp_path):
-    recording = tmp_path / "report.mp3"
-    recording.write_bytes(b"audio")
-    existing = recording.with_suffix(".html")
-    existing.write_text("user-owned html")
-
-    result = delivery.prepare_delivery(recording, "Visible text.")
-
-    generated = tmp_path / "report-2.html"
-    assert existing.read_text() == "user-owned html"
-    assert generated.is_file()
-    assert f"[browser]({generated.as_uri()})" in result.fallback_markdown
-
-
-@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
-def test_prepare_delivery_writes_private_player(tmp_path):
-    recording = tmp_path / "private.mp3"
-    recording.write_bytes(b"audio")
-
-    delivery.prepare_delivery(recording, "Private response.")
-
-    mode = stat.S_IMODE(recording.with_suffix(".html").stat().st_mode)
-    assert mode == 0o600
-
-
-def test_prepare_delivery_reserves_unique_players_concurrently(tmp_path):
-    recording = tmp_path / "concurrent.mp3"
-    recording.write_bytes(b"audio")
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        results = list(
-            executor.map(
-                lambda index: delivery.prepare_delivery(recording, f"Text {index}"),
-                range(8),
-            )
-        )
-
-    players = sorted(tmp_path.glob("concurrent*.html"))
-    assert len(players) == 8
-    assert len({result.fallback_markdown for result in results}) == 8
-    assert all("<audio controls" in player.read_text() for player in players)
-
-
-def test_prepare_delivery_failure_keeps_audio_and_uses_media_fallback(
+def test_prepare_delivery_copies_external_output_and_stores_transcript(
     tmp_path, monkeypatch
 ):
-    recording = tmp_path / "fallback.mp3"
-    recording.write_bytes(b"audio")
+    output = tmp_path / "export" / "report.m4a"
+    output.parent.mkdir()
+    output.write_bytes(b"m4a-audio")
+    managed = tmp_path / "managed recordings"
+    monkeypatch.setattr(delivery, "ensure_viewer", _viewer)
 
-    def fail_template():
-        raise OSError("template unavailable")
-
-    monkeypatch.setattr(delivery, "_player_template", fail_template)
-
-    result = delivery.prepare_delivery(recording, "Visible text.")
-
-    assert recording.read_bytes() == b"audio"
-    assert result.warning == (
-        "Could not create HTML player; using media fallback "
-        "(template unavailable)"
+    result = delivery.prepare_delivery(
+        output,
+        "Visible response text.",
+        audio_format="m4a",
+        recordings_dir=managed,
     )
-    assert "[browser]" not in result.fallback_markdown
-    assert f"Listen: [media]({recording.as_uri()})" in result.fallback_markdown
-    assert not list(tmp_path.glob("*.html"))
-    assert not list(tmp_path.glob("*.tmp"))
+
+    assert result.recording_path == managed / "report.m4a"
+    assert result.recording_path.read_bytes() == b"m4a-audio"
+    assert {path.name for path in managed.iterdir()} == {
+        "report.m4a",
+        ".agent-voice-viewer",
+    }
+    assert result.audio_url.endswith("/recordings/report.m4a")
+    assert output.read_bytes() == b"m4a-audio"
 
 
-def test_prepare_delivery_uses_explicit_format_for_extensionless_output(tmp_path):
-    recording = tmp_path / "recording"
+def test_prepare_delivery_adds_real_format_to_extensionless_output(
+    tmp_path, monkeypatch
+):
+    output = tmp_path / "recording"
+    output.write_bytes(b"opus-audio")
+    managed = tmp_path / "managed"
+    monkeypatch.setattr(delivery, "ensure_viewer", _viewer)
+
+    result = delivery.prepare_delivery(
+        output,
+        "Visible response text.",
+        audio_format="opus",
+        recordings_dir=managed,
+    )
+
+    assert result.recording_path == managed / "recording.opus"
+    assert result.audio_url.endswith("/recordings/recording.opus")
+
+
+def test_prepare_delivery_preserves_existing_managed_recording(
+    tmp_path, monkeypatch
+):
+    output = tmp_path / "report.mp3"
+    output.write_bytes(b"existing")
+    external = tmp_path / "external" / "report.mp3"
+    external.parent.mkdir()
+    external.write_bytes(b"new")
+    monkeypatch.setattr(delivery, "ensure_viewer", _viewer)
+
+    result = delivery.prepare_delivery(
+        external,
+        "Visible response text.",
+        recordings_dir=tmp_path,
+    )
+
+    assert output.read_bytes() == b"existing"
+    assert result.recording_path == tmp_path / "report-2.mp3"
+    assert result.recording_path.read_bytes() == b"new"
+
+
+def test_fallback_markdown_uses_editable_template(tmp_path, monkeypatch):
+    recording = tmp_path / "editable.mp3"
     recording.write_bytes(b"audio")
+    monkeypatch.setattr(delivery, "ensure_viewer", _viewer)
+    monkeypatch.setattr(
+        delivery,
+        "_fallback_template",
+        lambda: delivery.Template(
+            "Recording: $RECORDING_NAME\n"
+            "Browser: $BROWSER_URL\n"
+            "Audio: $AUDIO_URL\n"
+            "File: $RECORDING_URL\n"
+            "Run: $PLAY_COMMAND"
+        ),
+    )
 
     result = delivery.prepare_delivery(
         recording,
-        "Visible text.",
-        audio_format="opus",
+        "Visible response text.",
+        recordings_dir=tmp_path,
     )
 
-    document = recording.with_suffix(".html").read_text()
-    assert 'type="audio/ogg"' in document
-    assert re.search(r"\[browser\]\(file:.*recording\.html\)", result.fallback_markdown)
+    assert result.fallback_markdown.startswith("Recording: editable.mp3\n")
+    assert f"Browser: {result.browser_url}" in result.fallback_markdown
+    assert f"Audio: {result.audio_url}" in result.fallback_markdown
+    assert f"File: {recording.as_uri()}" in result.fallback_markdown
+    assert "Run: agent-voice play " in result.fallback_markdown
+
+
+def test_viewer_failure_keeps_audio_and_uses_file_fallback(tmp_path, monkeypatch):
+    recording = tmp_path / "fallback.mp3"
+    recording.write_bytes(b"audio")
+    monkeypatch.setattr(
+        delivery,
+        "ensure_viewer",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("not available")
+        ),
+    )
+
+    result = delivery.prepare_delivery(
+        recording,
+        "Visible response text.",
+        recordings_dir=tmp_path,
+    )
+
+    assert recording.read_bytes() == b"audio"
+    assert result.warning == (
+        "Could not start recording viewer; using file fallback (not available)"
+    )
+    assert "[web player]" not in result.fallback_markdown
+    assert f"Listen: [media app]({recording.as_uri()})" in result.fallback_markdown
 
 
 def test_prepare_delivery_rejects_unknown_audio_format(tmp_path):
@@ -136,4 +180,4 @@ def test_prepare_delivery_rejects_unknown_audio_format(tmp_path):
     recording.write_bytes(b"audio")
 
     with pytest.raises(ValueError, match="Unsupported recording format"):
-        delivery.prepare_delivery(recording, "Visible text.")
+        delivery.prepare_delivery(recording, "Visible response text.")

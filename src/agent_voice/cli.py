@@ -35,6 +35,7 @@ from .delivery import prepare_delivery
 from .model import ModelSelection, NamedVoice, SpeechModel, SynthesisRequest
 from .paths import recording_dir
 from .registry import MODEL_REGISTRY
+from .viewer import ensure_viewer, stop_viewer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -238,6 +239,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print a receipt after playback completes",
     )
+
+    viewer = subparsers.add_parser(
+        "viewer",
+        help="manage the lightweight recording viewer",
+        description="Start, stop, or inspect the localhost recording viewer.",
+    )
+    viewer_actions = viewer.add_subparsers(dest="viewer_action", required=True)
+    for action in ("start", "stop"):
+        action_parser = viewer_actions.add_parser(action)
+        action_parser.add_argument(
+            "--json",
+            action="store_true",
+            help="print one machine-readable viewer report",
+        )
     return parser
 
 
@@ -275,6 +290,8 @@ def main(argv: list[str] | None = None) -> None:
                 raise SystemExit(1)
         elif args.command == "play":
             _play(args)
+        elif args.command == "viewer":
+            _viewer(args)
     except (ValueError, RuntimeError, FileNotFoundError) as error:
         print(f"Error: {error}", file=sys.stderr)
         raise SystemExit(2) from error
@@ -410,12 +427,23 @@ def _speak(args: argparse.Namespace) -> None:
         result["service_fallback"] = True
     if args.json:
         result["file_uri"] = path.resolve().as_uri()
-        delivery = prepare_delivery(path, text, audio_format=audio_format)
+        delivery = prepare_delivery(
+            path,
+            text,
+            audio_format=audio_format,
+            recordings_dir=_managed_recording_directory(defaults),
+        )
         if delivery.warning is not None:
             print(f"Warning: {delivery.warning}", file=sys.stderr)
-        result["delivery"] = {
-            "fallback_markdown": delivery.fallback_markdown,
-        }
+        result["delivery"] = {"fallback_markdown": delivery.fallback_markdown}
+        if delivery.browser_url is not None:
+            result["delivery"].update(
+                {
+                    "browser_url": delivery.browser_url,
+                    "audio_url": delivery.audio_url,
+                    "recording_path": str(delivery.recording_path),
+                }
+            )
         print(json.dumps(result))
     else:
         print(f"Created {path}")
@@ -586,6 +614,31 @@ def _resolve_output(
         audio_format,
         True,
     )
+
+
+def _managed_recording_directory(defaults: SpeechDefaults | None = None) -> Path:
+    configured = load_defaults() if defaults is None else defaults
+    if os.environ.get("AGENT_VOICE_RECORDING_DIR"):
+        return recording_dir()
+    if configured.output_dir is not None:
+        return Path(configured.output_dir).expanduser().resolve()
+    return recording_dir()
+
+
+def _viewer(args: argparse.Namespace) -> None:
+    if args.viewer_action == "stop":
+        report = stop_viewer()
+    else:
+        report = ensure_viewer(_managed_recording_directory())
+
+    if args.json:
+        print(json.dumps(report.to_dict()))
+        return
+    if report.running:
+        print(f"Recording viewer: {report.url}")
+        print(f"Recordings: {report.recordings_dir}")
+    else:
+        print("Recording viewer: stopped")
 
 
 def _filename_label(value: str) -> str:

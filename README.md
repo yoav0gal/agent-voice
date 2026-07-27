@@ -1,9 +1,9 @@
 # Agent Voice
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-voice-logo-voiceprint-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-voice-logo-voiceprint.png">
-  <img src="assets/brand/agent-voice-logo-voiceprint.png" alt="Agent Voice logo" width="720">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-voice-logo-voiceprint-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-voice-logo-voiceprint.svg">
+  <img src="assets/brand/agent-voice-logo-voiceprint.svg" alt="Agent Voice logo" width="720">
 </picture>
 
 https://github.com/user-attachments/assets/975dcfd0-17ec-4912-b3b1-ec084077f858
@@ -53,10 +53,14 @@ printf '%s' "$VISIBLE_TEXT" |
 ```
 
 `--json` prints a machine-readable receipt containing the recording's absolute
-`path`, percent-encoded `file_uri`, audio metadata, and
-`delivery.fallback_markdown`. It also creates a secure, same-directory HTML
-player containing the native audio controls and escaped recording text.
-Without `--json`, `speak` creates only the audio recording.
+`path`, percent-encoded `file_uri`, audio metadata, and a `delivery` object with
+`browser_url`, `audio_url`, `recording_path`, and `fallback_markdown`.
+
+Agent Voice stores the recording plus private transcript metadata in its managed
+recordings directory. A lightweight localhost viewer renders the branded player
+document—with the recording name, native audio controls, and response text—and
+serves the actual WAV, MP3, Opus, or M4A recording. It starts automatically on
+port `8779`, or on a free port when `8779` is occupied.
 
 Agents use exactly two delivery routes:
 
@@ -65,15 +69,28 @@ Agents use exactly two delivery routes:
 
    ````markdown
    Agent Voice recording recording.mp3
-   Listen: [browser](file:///absolute/path/recording.html) · [media](file:///absolute/path/recording.mp3)
+   Listen: [web player](http://127.0.0.1:8779/player/recording.mp3) · [media app](file:///absolute/path/recording.mp3) · [raw audio](http://127.0.0.1:8779/recordings/recording.mp3)
    ```sh
    agent-voice play "/absolute/path/recording.mp3"
    ```
    ````
 
-The browser link opens the generated local player without a recording server.
-The media link is standard Markdown over `file_uri`; the command works in any
-terminal with Agent Voice installed.
+The viewer prefers port `8779` so links survive restarts. If that port is
+occupied, it selects a free port and reports it in the receipt. The web player
+renders the complete branded document, the media-app link opens the local file
+with the operating system default, and raw audio serves the recording directly
+over HTTP.
+
+Manage the lightweight viewer explicitly when needed:
+
+```sh
+agent-voice viewer start
+agent-voice viewer stop
+```
+
+`--output` still writes the exact requested path. For HTTP delivery, Agent
+Voice copies that audio into the managed recordings directory instead of
+serving arbitrary filesystem paths or creating symlinks.
 
 Explore the available voices and models, manage defaults, or check that Agent
 Voice is ready:
@@ -127,7 +144,7 @@ npx skills add yoav0gal/agent-voice --skill spoken-responses --global --agent co
 Use `--agent '*'` instead of `--agent codex` to install the same skills for all
 agent destinations recognized by the skills CLI.
 
-## Local API
+## Local speech API
 
 ```sh
 agent-voice serve
@@ -138,5 +155,6 @@ curl http://127.0.0.1:8765/v1/audio/speech \
   --output speech.mp3
 ```
 
-The service binds only to localhost. `agent-voice speak` uses it automatically
-when available and falls back to embedded inference.
+The speech API binds only to localhost. It is separate from the lightweight
+recording viewer. `agent-voice speak` uses the speech API automatically when
+available and falls back to embedded inference.

@@ -1,25 +1,31 @@
 from __future__ import annotations
 
-import html
 import os
-import secrets
 import shlex
 import subprocess
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from string import Template
-from urllib.parse import quote
 
-from .audio import CONTENT_TYPES
+from .media import CONTENT_TYPES
+from .viewer import (
+    ensure_viewer,
+    publish_recording,
+    publish_transcript,
+    recording_urls,
+)
 
 
-_TEMPLATE_RESOURCE = ("templates", "recording.html")
+_FALLBACK_TEMPLATE_RESOURCE = ("templates", "fallback-response.md")
 
 
 @dataclass(frozen=True)
 class Delivery:
     fallback_markdown: str
+    browser_url: str | None = None
+    audio_url: str | None = None
+    recording_path: Path | None = None
     warning: str | None = None
 
 
@@ -28,8 +34,9 @@ def prepare_delivery(
     text: str,
     *,
     audio_format: str | None = None,
+    recordings_dir: Path | None = None,
 ) -> Delivery:
-    """Create a local HTML player or fall back to portable recording links."""
+    """Publish one recording to the lightweight local viewer."""
     path = recording.expanduser().resolve()
     if not path.is_file():
         raise FileNotFoundError(f"Recording not found: {path}")
@@ -37,32 +44,39 @@ def prepare_delivery(
         raise ValueError("Recording text must be a string")
 
     resolved_format = (audio_format or path.suffix.lstrip(".")).lower()
-    media_type = CONTENT_TYPES.get(resolved_format)
-    if media_type is None:
+    if resolved_format not in CONTENT_TYPES:
         raise ValueError(f"Unsupported recording format: {resolved_format or '(none)'}")
 
     try:
-        player_path = _create_player(path, text, media_type)
-    except OSError as error:
+        published = publish_recording(path, resolved_format, recordings_dir)
+        publish_transcript(published, text)
+        viewer = ensure_viewer(published.parent)
+        browser_url, audio_url = recording_urls(viewer, published)
+    except (OSError, RuntimeError) as error:
         return Delivery(
-            _fallback_markdown(path),
-            f"Could not create HTML player; using media fallback ({error})",
+            _local_fallback_markdown(path),
+            warning=f"Could not start recording viewer; using file fallback ({error})",
         )
-    return Delivery(_fallback_markdown(path, player_path))
+
+    return Delivery(
+        _fallback_template().substitute(
+            RECORDING_NAME=path.name,
+            BROWSER_URL=browser_url,
+            AUDIO_URL=audio_url,
+            RECORDING_URL=path.as_uri(),
+            PLAY_COMMAND=_terminal_command(path),
+        ),
+        browser_url,
+        audio_url,
+        published,
+    )
 
 
-def _fallback_markdown(path: Path, player_path: Path | None = None) -> str:
-    if player_path is None:
-        listen = f"Listen: [media]({path.as_uri()})"
-    else:
-        listen = (
-            f"Listen: [browser]({player_path.as_uri()})"
-            f" · [media]({path.as_uri()})"
-        )
+def _local_fallback_markdown(path: Path) -> str:
     return (
         "---\n\n"
         f"Agent Voice recording {path.name}\n"
-        f"{listen}\n"
+        f"Listen: [media app]({path.as_uri()})\n"
         "```sh\n"
         f"{_terminal_command(path)}\n"
         "```\n\n"
@@ -70,63 +84,9 @@ def _fallback_markdown(path: Path, player_path: Path | None = None) -> str:
     )
 
 
-def _create_player(recording: Path, text: str, media_type: str) -> Path:
-    player_path = _reserve_player_path(recording)
-    temporary: Path | None = None
-    try:
-        document = _player_template().substitute(
-            PAGE_TITLE=html.escape(
-                f"{recording.name} · Agent Voice",
-                quote=True,
-            ),
-            RECORDING_NAME=html.escape(recording.name, quote=True),
-            MEDIA_SOURCE=html.escape(quote(recording.name), quote=True),
-            MEDIA_TYPE=html.escape(media_type, quote=True),
-            RESPONSE_TEXT=html.escape(text),
-        )
-        temporary = player_path.with_name(
-            f".{player_path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
-        )
-        descriptor = os.open(
-            temporary,
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-            0o600,
-        )
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write(document)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, player_path)
-        return player_path
-    except BaseException:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-        player_path.unlink(missing_ok=True)
-        raise
-
-
-def _reserve_player_path(recording: Path) -> Path:
-    base = recording.with_suffix(".html")
-    candidate = base
-    collision = 2
-    while True:
-        try:
-            descriptor = os.open(
-                candidate,
-                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                0o600,
-            )
-        except FileExistsError:
-            candidate = base.with_name(f"{base.stem}-{collision}{base.suffix}")
-            collision += 1
-        else:
-            os.close(descriptor)
-            return candidate
-
-
-def _player_template() -> Template:
+def _fallback_template() -> Template:
     template = resources.files("agent_voice")
-    for part in _TEMPLATE_RESOURCE:
+    for part in _FALLBACK_TEMPLATE_RESOURCE:
         template = template.joinpath(part)
     return Template(template.read_text(encoding="utf-8"))
 

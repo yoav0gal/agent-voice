@@ -14,8 +14,9 @@ def test_agent_voice_skill_matches_the_cli_and_delivery_contract():
     assert "`played` value is" in skill and "`true`" in skill
     assert "/Users/" not in skill
     assert "agent-voice serve" not in skill
-    assert "[browser](file:///absolute/path/recording.html)" in skill
-    assert "[media](file:///absolute/path/recording.mp3)" in skill
+    assert "[web player](http://127.0.0.1:8779/player/recording.mp3)" in skill
+    assert "[media app](file:///absolute/path/recording.mp3)" in skill
+    assert "[raw audio](http://127.0.0.1:8779/recordings/recording.mp3)" in skill
 
 
 def test_spoken_responses_skill_is_explicit_and_task_scoped():
@@ -28,8 +29,9 @@ def test_spoken_responses_skill_is_explicit_and_task_scoped():
     assert "never carries into another task" in skill
     assert "delivery.fallback_markdown" in skill
     assert "--speed" not in skill and "--service" not in skill
-    assert "[browser](file:///absolute/path/recording.html)" in skill
-    assert "[media](file:///absolute/path/recording.mp3)" in skill
+    assert "[web player](http://127.0.0.1:8779/player/recording.mp3)" in skill
+    assert "[media app](file:///absolute/path/recording.mp3)" in skill
+    assert "[raw audio](http://127.0.0.1:8779/recordings/recording.mp3)" in skill
     assert "allow_implicit_invocation: false" in metadata
 
 

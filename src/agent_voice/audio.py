@@ -19,12 +19,6 @@ from .config import FORMATS, MAX_SPEED, MIN_SPEED
 PLAYBACK_SAMPLE_RATE = 24_000
 PLAYBACK_CHANNELS = 1
 PLAYBACK_SAMPLE_WIDTH = 2
-CONTENT_TYPES = {
-    "wav": "audio/wav",
-    "mp3": "audio/mpeg",
-    "opus": "audio/ogg",
-    "m4a": "audio/mp4",
-}
 
 
 @dataclass(frozen=True)

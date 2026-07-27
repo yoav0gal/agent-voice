@@ -10,6 +10,8 @@ skills-lock.json
 dist/
 config.json
 service-start.lock
+viewer.lock
+viewer.json
 models/*.onnx
 models/*.bin
 models/*.lock

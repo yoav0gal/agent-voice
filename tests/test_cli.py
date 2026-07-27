@@ -14,10 +14,11 @@ from types import SimpleNamespace
 import pytest
 
 from agent_voice import __version__
-from agent_voice import cli
+from agent_voice import cli, delivery
 from agent_voice.client import ServiceUnavailable
 from agent_voice.config import load_defaults, update_defaults
 from agent_voice.model import PreparedArtifact, SetupReceipt
+from agent_voice.viewer import Viewer
 
 
 def _local_speech(audio: bytes = b"recording", captured: dict | None = None):
@@ -38,6 +39,18 @@ def _local_speech(audio: bytes = b"recording", captured: dict | None = None):
         }
 
     return speak
+
+
+@pytest.fixture(autouse=True)
+def _lightweight_viewer_stub(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path / "agent-home"))
+
+    def ready(root):
+        path = Path(root).resolve()
+        return Viewer(path, 49123, 123)
+
+    monkeypatch.setattr(cli, "ensure_viewer", ready)
+    monkeypatch.setattr(delivery, "ensure_viewer", ready)
 
 
 def test_installed_command_and_parser_use_agent_voice_name():
@@ -90,6 +103,7 @@ def test_service_url_uses_agent_voice_environment_name(monkeypatch):
         ("voices", ("--json", "--model-id", "--variant")),
         ("doctor", ("--service-url", "--json")),
         ("serve", ("--host", "--port", "--idle-timeout")),
+        ("viewer", ("start", "stop")),
     ],
 )
 def test_command_help_exposes_public_options(command, public_options, capsys):
@@ -110,6 +124,20 @@ def test_config_help_uses_service_modes_and_timeout_language(capsys):
     assert "--service {on,off,timed}" in help_text
     assert "--service-timeout MINUTES" in help_text
     assert "--keep-alive" not in help_text
+
+
+def test_viewer_commands_report_start_and_stop(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "recordings"
+    running = Viewer(root, 49123, 123)
+    stopped = Viewer(root)
+    monkeypatch.setattr(cli, "_managed_recording_directory", lambda: root)
+    monkeypatch.setattr(cli, "ensure_viewer", lambda selected: running)
+    monkeypatch.setattr(cli, "stop_viewer", lambda: stopped)
+
+    cli.main(["viewer", "start", "--json"])
+    assert json.loads(capsys.readouterr().out) == running.to_dict()
+    cli.main(["viewer", "stop", "--json"])
+    assert json.loads(capsys.readouterr().out) == stopped.to_dict()
 
 
 def test_model_arguments_separate_identity_from_variant():
@@ -191,7 +219,12 @@ def test_label_names_recording_in_default_directory(tmp_path, monkeypatch, capsy
     result = json.loads(capsys.readouterr().out)
     path = Path(result["path"])
     assert result["file_uri"] == path.as_uri()
-    assert set(result["delivery"]) == {"fallback_markdown"}
+    assert set(result["delivery"]) == {
+        "fallback_markdown",
+        "browser_url",
+        "audio_url",
+        "recording_path",
+    }
     assert path.parent == tmp_path
     assert re.fullmatch(
         r"SR-\d{2}-\d{2}-\d{2}-at-\d{2}-\d{2}\.mp3",
@@ -199,7 +232,7 @@ def test_label_names_recording_in_default_directory(tmp_path, monkeypatch, capsy
     )
     assert path.suffix == ".mp3"
     assert path.read_bytes() == b"recording"
-    assert path.with_suffix(".html").is_file()
+    assert list(tmp_path.glob("*.html")) == []
 
 
 def test_unlabeled_recording_uses_agent_voice_name(tmp_path, monkeypatch, capsys):
@@ -213,11 +246,14 @@ def test_unlabeled_recording_uses_agent_voice_name(tmp_path, monkeypatch, capsys
     assert result["file_uri"] == path.as_uri()
     assert path.name.startswith("agent-voice-")
     assert path.suffix == ".mp3"
-    assert path.with_suffix(".html").is_file()
+    assert list(path.parent.glob("*.html")) == []
 
 
-def test_json_speak_uses_real_html_delivery(tmp_path, monkeypatch, capsys):
+def test_json_speak_uses_http_delivery_without_writing_html(
+    tmp_path, monkeypatch, capsys
+):
     output = tmp_path / "response notes.mp3"
+    monkeypatch.setenv("AGENT_VOICE_RECORDING_DIR", str(tmp_path))
     monkeypatch.setattr(cli, "_speak_locally", _local_speech())
 
     cli.main(
@@ -235,23 +271,39 @@ def test_json_speak_uses_real_html_delivery(tmp_path, monkeypatch, capsys):
     result = json.loads(capsys.readouterr().out)
     assert result["path"] == str(output)
     assert result["file_uri"] == output.as_uri()
-    assert set(result["delivery"]) == {"fallback_markdown"}
-    player = output.with_suffix(".html")
+    assert set(result["delivery"]) == {
+        "fallback_markdown",
+        "browser_url",
+        "audio_url",
+        "recording_path",
+    }
+    assert result["delivery"]["browser_url"] == (
+        "http://127.0.0.1:49123/player/response%20notes.mp3"
+    )
+    assert result["delivery"]["audio_url"] == (
+        "http://127.0.0.1:49123/recordings/response%20notes.mp3"
+    )
+    assert result["delivery"]["recording_path"] == str(output)
     lines = result["delivery"]["fallback_markdown"].splitlines()
-    assert lines[:5] == [
-        "---",
-        "",
-        "Agent Voice recording response notes.mp3",
-        f"Listen: [browser]({player.as_uri()}) · [media]({output.as_uri()})",
-        "```sh",
-    ]
+    assert lines[0] == "---"
+    assert "Agent Voice recording response notes.mp3" in lines
+    assert (
+        f"Listen: [web player]({result['delivery']['browser_url']})"
+        f" · [media app]({result['file_uri']})"
+        f" · [raw audio]({result['delivery']['audio_url']})"
+        in lines
+    )
     assert lines[-3:] == ["```", "", "---"]
+    command = lines[lines.index("```sh") + 1]
     if os.name == "nt":
-        assert lines[5] == f"agent-voice play {subprocess.list2cmdline([str(output)])}"
+        assert command == f"agent-voice play {subprocess.list2cmdline([str(output)])}"
     else:
-        assert shlex.split(lines[5]) == ["agent-voice", "play", str(output)]
-    assert "Every visible word." in player.read_text()
-    assert set(tmp_path.iterdir()) == {output, player}
+        assert shlex.split(command) == ["agent-voice", "play", str(output)]
+    assert output.is_file()
+    assert {path.name for path in tmp_path.iterdir()} == {
+        output.name,
+        ".agent-voice-viewer",
+    }
 
 
 def test_plain_speak_creates_only_audio(tmp_path, monkeypatch, capsys):
@@ -284,12 +336,15 @@ def test_json_speak_keeps_audio_when_player_generation_fails(
     tmp_path, monkeypatch, capsys
 ):
     output = tmp_path / "fallback.mp3"
+    monkeypatch.setenv("AGENT_VOICE_RECORDING_DIR", str(tmp_path))
     monkeypatch.setattr(cli, "_speak_locally", _local_speech())
-
-    def fail_template():
-        raise OSError("template unavailable")
-
-    monkeypatch.setattr("agent_voice.delivery._player_template", fail_template)
+    monkeypatch.setattr(
+        delivery,
+        "ensure_viewer",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("not available")
+        ),
+    )
 
     cli.main(
         [
@@ -306,9 +361,8 @@ def test_json_speak_keeps_audio_when_player_generation_fails(
     captured = capsys.readouterr()
     result = json.loads(captured.out)
     assert output.read_bytes() == b"recording"
-    assert not output.with_suffix(".html").exists()
-    assert "[browser]" not in result["delivery"]["fallback_markdown"]
-    assert "Could not create HTML player" in captured.err
+    assert "[web player]" not in result["delivery"]["fallback_markdown"]
+    assert "Could not start recording viewer" in captured.err
 
 
 def test_setup_prepares_model(tmp_path, monkeypatch, capsys):
@@ -492,7 +546,9 @@ def test_output_dir_flag_overrides_environment_and_config(
     path = Path(json.loads(capsys.readouterr().out)["path"])
     assert path.parent == command_line
     assert not configured.exists()
-    assert not environment.exists()
+    published = list(environment.glob("*.mp3"))
+    assert len(published) == 1
+    assert published[0].read_bytes() == b"command line"
 
 
 def test_environment_output_dir_overrides_config(tmp_path, monkeypatch, capsys):

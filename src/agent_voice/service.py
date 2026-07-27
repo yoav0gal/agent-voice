@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .audio import CONTENT_TYPES, play_audio, write_audio
+from .audio import play_audio, write_audio
 from .config import FORMATS, load_defaults
+from .media import CONTENT_TYPES
 from .model import NamedVoice, SpeechModel, SynthesisRequest
 
 
