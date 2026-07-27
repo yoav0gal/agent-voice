@@ -33,7 +33,7 @@ from .config import (
 )
 from .delivery import prepare_delivery
 from .model import ModelSelection, NamedVoice, SpeechModel, SynthesisRequest
-from .paths import recording_dir
+from .paths import resolved_recording_dir
 from .registry import MODEL_REGISTRY
 from .viewer import ensure_viewer, stop_viewer
 
@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "examples:\n"
             "  agent-voice setup\n"
-            "  printf '%s' \"$TEXT\" | agent-voice speak --format mp3 --json\n"
+            "  printf '%s' \"$TEXT\" | agent-voice speak --format mp3\n"
             "  agent-voice play \"/path/to/recording.mp3\"\n"
             "  agent-voice doctor --json\n\n"
             "Agent speech: read the JSON path; only report playback when played=true."
@@ -104,11 +104,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--play",
         action="store_true",
         help="play after generating; successful JSON reports played=true",
-    )
-    speak.add_argument(
-        "--json",
-        action="store_true",
-        help="print one JSON receipt with an absolute output path",
     )
     _add_model_arguments(speak)
     speak.add_argument(
@@ -201,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="bind host (default: 127.0.0.1)",
     )
     serve_parser.add_argument(
-        "--port", type=int, default=8765, help="bind port (default: 8765)"
+        "--port", type=_port, default=8765, help="bind port (default: 8765)"
     )
     _add_model_arguments(serve_parser)
     serve_parser.add_argument(
@@ -425,32 +420,25 @@ def _speak(args: argparse.Namespace) -> None:
     result["played"] = args.play
     if fallback_reason is not None:
         result["service_fallback"] = True
-    if args.json:
-        result["file_uri"] = path.resolve().as_uri()
-        delivery = prepare_delivery(
-            path,
-            text,
-            audio_format=audio_format,
-            recordings_dir=_managed_recording_directory(defaults),
+    result["file_uri"] = path.resolve().as_uri()
+    delivery = prepare_delivery(
+        path,
+        text,
+        audio_format=audio_format,
+        recordings_dir=_managed_recording_directory(defaults),
+    )
+    if delivery.warning is not None:
+        print(f"Warning: {delivery.warning}", file=sys.stderr)
+    result["delivery"] = {"fallback_markdown": delivery.fallback_markdown}
+    if delivery.browser_url is not None:
+        result["delivery"].update(
+            {
+                "browser_url": delivery.browser_url,
+                "audio_url": delivery.audio_url,
+                "recording_path": str(delivery.recording_path),
+            }
         )
-        if delivery.warning is not None:
-            print(f"Warning: {delivery.warning}", file=sys.stderr)
-        result["delivery"] = {"fallback_markdown": delivery.fallback_markdown}
-        if delivery.browser_url is not None:
-            result["delivery"].update(
-                {
-                    "browser_url": delivery.browser_url,
-                    "audio_url": delivery.audio_url,
-                    "recording_path": str(delivery.recording_path),
-                }
-            )
-        print(json.dumps(result))
-    else:
-        print(f"Created {path}")
-        print(
-            f"{_display_number(result.get('duration_seconds'))}s audio · {args.voice} · "
-            f"{result['backend']} backend"
-        )
+    print(json.dumps(result))
 
 
 def _speak_locally(
@@ -547,10 +535,6 @@ def _play(args: argparse.Namespace) -> None:
         print(f"Played {path}")
 
 
-def _display_number(value: object) -> str:
-    return f"{value:.1f}" if isinstance(value, (int, float)) else "unknown"
-
-
 def _positive_minutes(value: str) -> float:
     try:
         minutes = float(value)
@@ -561,6 +545,18 @@ def _positive_minutes(value: str) -> float:
     if not math.isfinite(minutes) or minutes <= 0:
         raise argparse.ArgumentTypeError("must be a finite number greater than zero")
     return minutes
+
+
+def _port(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "must be an integer from 1 to 65535"
+        ) from error
+    if not 1 <= port <= 65_535:
+        raise argparse.ArgumentTypeError("must be an integer from 1 to 65535")
+    return port
 
 
 def _configured_output_dir(value: str) -> Path | None:
@@ -601,12 +597,8 @@ def _resolve_output(
 
     if args.output_dir is not None:
         directory = args.output_dir.expanduser().resolve()
-    elif os.environ.get("AGENT_VOICE_RECORDING_DIR"):
-        directory = recording_dir()
-    elif defaults.output_dir is not None:
-        directory = Path(defaults.output_dir)
     else:
-        directory = recording_dir()
+        directory = resolved_recording_dir(defaults.output_dir)
     timestamp = datetime.now().strftime("%m-%d-%y-at-%H-%M")
     label = _filename_label(args.label) if args.label else "agent-voice"
     return (
@@ -618,11 +610,7 @@ def _resolve_output(
 
 def _managed_recording_directory(defaults: SpeechDefaults | None = None) -> Path:
     configured = load_defaults() if defaults is None else defaults
-    if os.environ.get("AGENT_VOICE_RECORDING_DIR"):
-        return recording_dir()
-    if configured.output_dir is not None:
-        return Path(configured.output_dir).expanduser().resolve()
-    return recording_dir()
+    return resolved_recording_dir(configured.output_dir)
 
 
 def _viewer(args: argparse.Namespace) -> None:

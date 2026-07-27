@@ -133,7 +133,71 @@ def test_viewer_supports_head(tmp_path):
         with urllib.request.urlopen(head) as response:
             assert response.status == 200
             assert response.headers["Content-Length"] == "10"
+            assert response.headers["Accept-Ranges"] == "bytes"
             assert response.read() == b""
+
+
+@pytest.mark.parametrize(
+    ("requested_range", "expected_range", "expected_body"),
+    [
+        ("bytes=2-5", "bytes 2-5/10", b"2345"),
+        ("bytes=7-", "bytes 7-9/10", b"789"),
+        ("bytes=-3", "bytes 7-9/10", b"789"),
+        ("bytes=8-20", "bytes 8-9/10", b"89"),
+    ],
+)
+def test_viewer_streams_single_audio_ranges(
+    tmp_path, requested_range, expected_range, expected_body
+):
+    recording = tmp_path / "range.mp3"
+    recording.write_bytes(b"0123456789")
+
+    with _running_viewer(tmp_path) as (_, url):
+        request = urllib.request.Request(
+            f"{url}/recordings/range.mp3",
+            headers={"Range": requested_range},
+        )
+        with urllib.request.urlopen(request) as response:
+            assert response.status == 206
+            assert response.headers["Accept-Ranges"] == "bytes"
+            assert response.headers["Content-Range"] == expected_range
+            assert response.headers["Content-Length"] == str(len(expected_body))
+            assert response.read() == expected_body
+
+
+def test_viewer_rejects_unsatisfiable_audio_ranges(tmp_path):
+    recording = tmp_path / "range.mp3"
+    recording.write_bytes(b"0123456789")
+
+    with _running_viewer(tmp_path) as (_, url):
+        request = urllib.request.Request(
+            f"{url}/recordings/range.mp3",
+            headers={"Range": "bytes=20-30"},
+        )
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(request)
+
+    assert rejected.value.code == 416
+    assert rejected.value.headers["Accept-Ranges"] == "bytes"
+    assert rejected.value.headers["Content-Range"] == "bytes */10"
+
+
+def test_viewer_supports_head_for_an_audio_range(tmp_path):
+    recording = tmp_path / "range.mp3"
+    recording.write_bytes(b"0123456789")
+
+    with _running_viewer(tmp_path) as (_, url):
+        request = urllib.request.Request(
+            f"{url}/recordings/range.mp3",
+            headers={"Range": "bytes=2-5"},
+            method="HEAD",
+        )
+        with urllib.request.urlopen(request) as response:
+            assert response.status == 206
+            assert response.headers["Content-Range"] == "bytes 2-5/10"
+            assert response.headers["Content-Length"] == "4"
+            assert response.read() == b""
+
 
 @pytest.mark.parametrize(
     "path",

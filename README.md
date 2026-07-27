@@ -23,7 +23,7 @@ arm64 lacks an `imageio-ffmpeg` wheel; use x64 Python under Windows emulation.
 ```sh
 uv tool install agent-voice
 agent-voice setup
-agent-voice speak "Hello from Agent Voice." --play --json
+agent-voice speak "Hello from Agent Voice." --play
 ```
 
 `agent-voice setup` downloads and verifies the speech model.
@@ -49,12 +49,13 @@ agent-voice speak "A slower reading." \
 
 # Safely pass agent text through stdin
 printf '%s' "$VISIBLE_TEXT" |
-  agent-voice speak --format mp3 --json
+  agent-voice speak --format mp3
 ```
 
-`--json` prints a machine-readable receipt containing the recording's absolute
-`path`, percent-encoded `file_uri`, audio metadata, and a `delivery` object with
-`browser_url`, `audio_url`, `recording_path`, and `fallback_markdown`.
+Every `agent-voice speak` command prints one machine-readable JSON receipt
+containing the recording's absolute `path`, percent-encoded `file_uri`, audio
+metadata, and a `delivery` object with `browser_url`, `audio_url`,
+`recording_path`, and `fallback_markdown`.
 
 Agent Voice stores the recording plus private transcript metadata in its managed
 recordings directory. A lightweight localhost viewer renders the branded player

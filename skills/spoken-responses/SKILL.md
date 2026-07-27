@@ -38,8 +38,7 @@ complete path and filename; it takes precedence, so omit `--label`.
    printf '%s' "$NARRATION" |
      agent-voice speak \
        --format mp3 \
-       --label "$RECORDING_LABEL" \
-       --json
+       --label "$RECORDING_LABEL"
    ```
 
 3. Continue only after the final JSON line contains an absolute MP3 `path` and

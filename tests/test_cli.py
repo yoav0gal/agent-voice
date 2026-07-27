@@ -80,7 +80,7 @@ def test_top_level_help_has_a_compact_agent_workflow(capsys):
     assert exit_info.value.code == 0
     help_text = capsys.readouterr().out
     assert "agent-voice setup" in help_text
-    assert "printf '%s' \"$TEXT\" | agent-voice speak --format mp3 --json" in help_text
+    assert "printf '%s' \"$TEXT\" | agent-voice speak --format mp3" in help_text
     assert 'agent-voice play "/path/to/recording.mp3"' in help_text
     assert "agent-voice doctor --json" in help_text
     assert (
@@ -96,10 +96,25 @@ def test_service_url_uses_agent_voice_environment_name(monkeypatch):
     )
 
 
+@pytest.mark.parametrize("port", ("0", "-1", "65536", "not-a-port"))
+def test_serve_rejects_invalid_ports_during_argument_parsing(port, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["serve", "--port", port])
+
+    assert exit_info.value.code == 2
+    assert "must be an integer from 1 to 65535" in capsys.readouterr().err
+
+
+def test_serve_accepts_the_highest_valid_port():
+    args = cli.build_parser().parse_args(["serve", "--port", "65535"])
+
+    assert args.port == 65_535
+
+
 @pytest.mark.parametrize(
     ("command", "public_options"),
     [
-        ("speak", ("--output", "--format", "--play", "--json", "--service")),
+        ("speak", ("--output", "--format", "--play", "--service")),
         ("voices", ("--json", "--model-id", "--variant")),
         ("doctor", ("--service-url", "--json")),
         ("serve", ("--host", "--port", "--idle-timeout")),
@@ -212,7 +227,6 @@ def test_label_names_recording_in_default_directory(tmp_path, monkeypatch, capsy
             "mp3",
             "--service",
             "off",
-            "--json",
         ]
     )
 
@@ -239,7 +253,7 @@ def test_unlabeled_recording_uses_agent_voice_name(tmp_path, monkeypatch, capsys
     monkeypatch.setenv("AGENT_VOICE_RECORDING_DIR", str(tmp_path))
     monkeypatch.setattr(cli, "_speak_locally", _local_speech())
 
-    cli.main(["speak", "visible text", "--service", "off", "--json"])
+    cli.main(["speak", "visible text", "--service", "off"])
 
     result = json.loads(capsys.readouterr().out)
     path = Path(result["path"])
@@ -249,7 +263,7 @@ def test_unlabeled_recording_uses_agent_voice_name(tmp_path, monkeypatch, capsys
     assert list(path.parent.glob("*.html")) == []
 
 
-def test_json_speak_uses_http_delivery_without_writing_html(
+def test_speak_uses_http_delivery_without_writing_html(
     tmp_path, monkeypatch, capsys
 ):
     output = tmp_path / "response notes.mp3"
@@ -264,7 +278,6 @@ def test_json_speak_uses_http_delivery_without_writing_html(
             str(output),
             "--service",
             "off",
-            "--json",
         ]
     )
 
@@ -306,33 +319,16 @@ def test_json_speak_uses_http_delivery_without_writing_html(
     }
 
 
-def test_plain_speak_creates_only_audio(tmp_path, monkeypatch, capsys):
-    output = tmp_path / "plain.mp3"
-    monkeypatch.setattr(cli, "_speak_locally", _local_speech())
-    monkeypatch.setattr(
-        cli,
-        "prepare_delivery",
-        lambda *_args, **_kwargs: pytest.fail(
-            "plain speak must not compute delivery metadata"
-        ),
-    )
+def test_speak_json_flag_is_not_available():
+    parser = cli.build_parser()
 
-    cli.main(
-        [
-            "speak",
-            "Visible text.",
-            "--output",
-            str(output),
-            "--service",
-            "off",
-        ]
-    )
+    with pytest.raises(SystemExit) as exit_info:
+        parser.parse_args(["speak", "Visible text.", "--json"])
 
-    assert capsys.readouterr().out.startswith(f"Created {output}\n")
-    assert set(tmp_path.iterdir()) == {output}
+    assert exit_info.value.code == 2
 
 
-def test_json_speak_keeps_audio_when_player_generation_fails(
+def test_speak_keeps_audio_when_player_generation_fails(
     tmp_path, monkeypatch, capsys
 ):
     output = tmp_path / "fallback.mp3"
@@ -354,7 +350,6 @@ def test_json_speak_keeps_audio_when_player_generation_fails(
             str(output),
             "--service",
             "off",
-            "--json",
         ]
     )
 
@@ -457,7 +452,6 @@ def test_automatic_recording_name_does_not_overwrite_same_minute_collision(
             "mp3",
             "--service",
             "off",
-            "--json",
         ]
     )
 
@@ -483,7 +477,6 @@ def test_output_takes_precedence_over_label(tmp_path, monkeypatch, capsys):
             str(ignored_directory),
             "--service",
             "off",
-            "--json",
         ]
     )
 
@@ -509,7 +502,6 @@ def test_configured_output_dir_combines_with_label(tmp_path, monkeypatch, capsys
             "Daily update",
             "--service",
             "off",
-            "--json",
         ]
     )
 
@@ -539,7 +531,6 @@ def test_output_dir_flag_overrides_environment_and_config(
             str(command_line),
             "--service",
             "off",
-            "--json",
         ]
     )
 
@@ -560,7 +551,7 @@ def test_environment_output_dir_overrides_config(tmp_path, monkeypatch, capsys):
     update_defaults(output_dir=configured)
     monkeypatch.setenv("AGENT_VOICE_RECORDING_DIR", str(environment))
     monkeypatch.setattr(cli, "_speak_locally", _local_speech(b"environment"))
-    cli.main(["speak", "visible text", "--service", "off", "--json"])
+    cli.main(["speak", "visible text", "--service", "off"])
 
     path = Path(json.loads(capsys.readouterr().out)["path"])
     assert path.parent == environment
@@ -630,7 +621,7 @@ def test_timed_service_falls_back_to_embedded(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "ensure_service", unavailable)
     monkeypatch.setattr(cli, "_speak_locally", _local_speech(b"RIFF-local"))
 
-    cli.main(["speak", "visible text", "-o", str(output), "--json"])
+    cli.main(["speak", "visible text", "-o", str(output)])
 
     captured = capsys.readouterr()
     result = json.loads(captured.out)
@@ -676,7 +667,7 @@ def test_timed_service_uses_saved_timeout(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "ensure_service", start)
     monkeypatch.setattr(cli, "request_speech", request)
 
-    cli.main(["speak", "visible text", "-o", str(output), "--json"])
+    cli.main(["speak", "visible text", "-o", str(output)])
 
     captured = capsys.readouterr()
     result = json.loads(captured.out)
@@ -707,7 +698,7 @@ def test_on_service_starts_without_an_idle_timeout(tmp_path, monkeypatch, capsys
     monkeypatch.setattr(cli, "request_speech", unavailable)
     monkeypatch.setattr(cli, "_speak_locally", _local_speech(b"RIFF-local"))
 
-    cli.main(["speak", "visible text", "--json"])
+    cli.main(["speak", "visible text"])
 
     result = json.loads(capsys.readouterr().out)
     assert started == [None]
@@ -746,7 +737,6 @@ def test_played_is_true_only_after_player_returns(tmp_path, monkeypatch, capsys)
             "--service",
             "off",
             "--play",
-            "--json",
         ]
     )
 
@@ -771,7 +761,6 @@ def test_speak_uses_saved_defaults(tmp_path, monkeypatch, capsys):
             "off",
             "--output",
             str(output),
-            "--json",
         ]
     )
 
@@ -799,7 +788,7 @@ def test_speak_uses_saved_format_and_service_mode(tmp_path, monkeypatch, capsys)
     )
     monkeypatch.setattr(cli, "_speak_locally", _local_speech())
 
-    cli.main(["speak", "visible text", "--json"])
+    cli.main(["speak", "visible text"])
 
     result = json.loads(capsys.readouterr().out)
     assert result["format"] == "mp3"
@@ -821,7 +810,6 @@ def test_speak_flags_override_saved_format_and_service(tmp_path, monkeypatch, ca
             "wav",
             "--service",
             "off",
-            "--json",
         ]
     )
 

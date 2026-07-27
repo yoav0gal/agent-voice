@@ -8,8 +8,9 @@ def test_agent_voice_skill_matches_the_cli_and_delivery_contract():
     skill = (PROJECT / "skills/agent-voice/SKILL.md").read_text()
 
     assert "name: agent-voice" in skill
-    assert 'agent-voice speak "Text to record" --json' in skill
-    assert "printf '%s' \"$TEXT\" | agent-voice speak --json" in skill
+    assert 'agent-voice speak "Text to record"' in skill
+    assert "printf '%s' \"$TEXT\" | agent-voice speak" in skill
+    assert "speak --json" not in skill
     assert "receipt's exact `delivery.fallback_markdown`" in skill
     assert "render the receipt's `path`" in skill
     assert "`played` value is" in skill and "`true`" in skill

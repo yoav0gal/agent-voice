@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from agent_voice import doctor
 from agent_voice.audio import AudioRuntime
+from agent_voice.config import update_defaults
 from agent_voice.model import ModelCheck, ModelStatus
 
 
@@ -17,7 +18,7 @@ class ReadyModel:
 
 
 def _prepare_doctor(tmp_path, monkeypatch, runtime: AudioRuntime) -> None:
-    monkeypatch.setattr(doctor, "recording_dir", lambda: tmp_path / "recordings")
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(doctor, "inspect_audio_runtime", lambda: runtime)
     monkeypatch.setattr(
         doctor,
@@ -73,3 +74,31 @@ def test_missing_output_device_is_a_playback_warning(tmp_path, monkeypatch):
     assert report["ok"] is True
     assert playback["status"] == "warn"
     assert "output device unavailable" in playback["detail"]
+
+
+def test_doctor_checks_the_configured_recording_directory(tmp_path, monkeypatch):
+    configured = tmp_path / "configured-recordings"
+    _prepare_doctor(
+        tmp_path,
+        monkeypatch,
+        AudioRuntime(
+            ffmpeg_path="/package/imageio_ffmpeg/ffmpeg",
+            ffmpeg_version="7.1",
+            ffmpeg_error=None,
+            miniaudio_version="1.71",
+            playback_backend="coreaudio",
+            playback_error=None,
+        ),
+    )
+    update_defaults(output_dir=configured)
+
+    report = doctor.diagnose(ReadyModel(), "http://127.0.0.1:8765")
+    recordings = next(
+        check for check in report["checks"] if check["name"] == "recordings"
+    )
+
+    assert recordings == {
+        "name": "recordings",
+        "status": "pass",
+        "detail": f"{configured} is writable",
+    }

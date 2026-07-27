@@ -7,8 +7,9 @@ from pathlib import Path
 from . import __version__
 from .audio import inspect_audio_runtime
 from .client import ServiceUnavailable, health_check
+from .config import load_defaults
 from .model import SpeechModel
-from .paths import recording_dir
+from .paths import resolved_recording_dir
 
 
 def diagnose(model: SpeechModel, service_url: str) -> dict[str, object]:
@@ -29,7 +30,7 @@ def diagnose(model: SpeechModel, service_url: str) -> dict[str, object]:
             model_check.detail,
         )
 
-    output_directory = recording_dir()
+    output_directory = resolved_recording_dir(load_defaults().output_dir)
     writable = _directory_is_writable(output_directory)
     _check(
         checks,

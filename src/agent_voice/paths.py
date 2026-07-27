@@ -43,6 +43,17 @@ def recording_dir() -> Path:
     )
 
 
+def resolved_recording_dir(
+    configured_output_dir: str | os.PathLike[str] | None = None,
+) -> Path:
+    """Resolve the active managed recording directory."""
+    if os.environ.get("AGENT_VOICE_RECORDING_DIR"):
+        return recording_dir()
+    if configured_output_dir is not None:
+        return Path(configured_output_dir).expanduser().resolve()
+    return recording_dir()
+
+
 def model_dir() -> Path:
     configured = os.environ.get("AGENT_VOICE_MODEL_DIR")
     return (

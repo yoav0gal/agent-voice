@@ -305,6 +305,8 @@ def create_server(
 ) -> IdleHTTPServer:
     if host not in ("127.0.0.1", "localhost"):
         raise ValueError("This personal audio service only binds to localhost")
+    if isinstance(port, bool) or not isinstance(port, int) or not 0 <= port <= 65_535:
+        raise ValueError("Port must be an integer from 0 to 65535")
     if idle_timeout_seconds is not None and (
         not math.isfinite(idle_timeout_seconds) or idle_timeout_seconds <= 0
     ):
@@ -324,7 +326,7 @@ def serve(
     idle_timeout_seconds: float | None = None,
 ) -> None:
     server = create_server(model, host, port, idle_timeout_seconds)
-    print(f"Agent Voice listening on http://{host}:{port}")
+    print(f"Agent Voice listening on http://{host}:{server.server_port}")
     if idle_timeout_seconds is not None:
         print(f"Stops after {idle_timeout_seconds / 60:g} idle minutes")
     print("POST /v1/audio/speech · GET /voices · GET /health")

@@ -29,17 +29,18 @@ Prepare the text as you would naturally say it:
   changing its meaning.
 - For tables, state the headers once and read each row as labeled values.
 
-Always include `--json`. Treat the receipt as internal delivery data; do not
-paste the full receipt into the response unless the user requests it.
+Every `speak` command returns a JSON receipt. Treat it as internal delivery
+data; do not paste the full receipt into the response unless the user requests
+it.
 
 ```sh
-agent-voice speak "Text to record" --json
+agent-voice speak "Text to record"
 ```
 
 For long text or shell-sensitive text, use:
 
 ```sh
-printf '%s' "$TEXT" | agent-voice speak --json
+printf '%s' "$TEXT" | agent-voice speak
 ```
 
 See `agent-voice speak --help` for one-time overrides, or
@@ -55,7 +56,7 @@ Choose a short, relevant name when the recording has a clear subject or title.
 Use `--label` and let Agent Voice manage the final filename:
 
 ```sh
-agent-voice speak "Text to record" --label release-summary --json
+agent-voice speak "Text to record" --label release-summary
 ```
 
 Use `--output` only when the user requests an exact path or filename.

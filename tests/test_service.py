@@ -9,7 +9,7 @@ from contextlib import contextmanager
 import numpy as np
 import pytest
 
-from agent_voice import client
+from agent_voice import client, service
 from agent_voice.client import (
     ServiceUnavailable,
     ensure_service,
@@ -90,6 +90,32 @@ def test_bad_payloads_are_rejected(payload, message):
 def test_remote_bind_is_rejected():
     with pytest.raises(ValueError, match="only binds to localhost"):
         serve(object(), "0.0.0.0", 8765)
+
+
+@pytest.mark.parametrize("port", (-1, 65_536, True, 1.5))
+def test_server_rejects_invalid_ports(port):
+    with pytest.raises(ValueError, match="Port must be an integer"):
+        create_server(object(), "127.0.0.1", port)
+
+
+def test_serve_reports_the_actual_bound_port(monkeypatch, capsys):
+    events = []
+
+    class FakeServer:
+        server_port = 49_123
+
+        def serve_until_idle(self):
+            events.append("serve")
+
+        def server_close(self):
+            events.append("close")
+
+    monkeypatch.setattr(service, "create_server", lambda *args: FakeServer())
+
+    service.serve(object(), "127.0.0.1", 0)
+
+    assert "http://127.0.0.1:49123" in capsys.readouterr().out
+    assert events == ["serve", "close"]
 
 
 @pytest.mark.parametrize(

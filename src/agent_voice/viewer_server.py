@@ -6,7 +6,6 @@ import errno
 import html
 import json
 import os
-import shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
@@ -145,11 +144,43 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def _send_file(self, path: Path, content_type: str, head: bool) -> None:
-        self.send_response(200)
-        self._headers(path.stat().st_size, content_type)
+        size = path.stat().st_size
+        requested_range = self.headers.get("Range")
+        if requested_range is None:
+            self.send_response(200)
+            self._headers(size, content_type, accept_ranges=True)
+            start = 0
+            length = size
+        else:
+            try:
+                start, end = _byte_range(requested_range, size)
+            except ValueError:
+                self.send_response(416)
+                self._headers(
+                    0,
+                    content_type,
+                    accept_ranges=True,
+                    content_range=f"bytes */{size}",
+                )
+                return
+            length = end - start + 1
+            self.send_response(206)
+            self._headers(
+                length,
+                content_type,
+                accept_ranges=True,
+                content_range=f"bytes {start}-{end}/{size}",
+            )
         if not head:
             with path.open("rb") as source:
-                shutil.copyfileobj(source, self.wfile)
+                source.seek(start)
+                remaining = length
+                while remaining:
+                    chunk = source.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
 
     def _send(self, body: bytes, content_type: str, head: bool) -> None:
         self.send_response(200)
@@ -157,9 +188,20 @@ class Handler(BaseHTTPRequestHandler):
         if not head:
             self.wfile.write(body)
 
-    def _headers(self, length: int, content_type: str) -> None:
+    def _headers(
+        self,
+        length: int,
+        content_type: str,
+        *,
+        accept_ranges: bool = False,
+        content_range: str | None = None,
+    ) -> None:
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(length))
+        if accept_ranges:
+            self.send_header("Accept-Ranges", "bytes")
+        if content_range is not None:
+            self.send_header("Content-Range", content_range)
         self.send_header("Cache-Control", "private, no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
@@ -203,6 +245,30 @@ def create_server(recordings: Path) -> Server:
         if error.errno != errno.EADDRINUSE:
             raise
         return Server(recordings)
+
+
+def _byte_range(value: str, size: int) -> tuple[int, int]:
+    if not value.startswith("bytes=") or "," in value or size <= 0:
+        raise ValueError("Unsupported byte range")
+    start_text, separator, end_text = value.removeprefix("bytes=").partition("-")
+    if not separator:
+        raise ValueError("Unsupported byte range")
+
+    if start_text:
+        if not start_text.isdigit() or (end_text and not end_text.isdigit()):
+            raise ValueError("Unsupported byte range")
+        start = int(start_text)
+        end = size - 1 if not end_text else min(int(end_text), size - 1)
+        if start >= size or end < start:
+            raise ValueError("Unsatisfiable byte range")
+        return start, end
+
+    if not end_text.isdigit():
+        raise ValueError("Unsupported byte range")
+    suffix_length = int(end_text)
+    if suffix_length <= 0:
+        raise ValueError("Unsatisfiable byte range")
+    return max(0, size - suffix_length), size - 1
 
 
 def _player(recording: Path) -> bytes:
