@@ -62,36 +62,13 @@ Use `--output` only when the user requests an exact path or filename.
 
 ## Deliver
 
-Use exactly one of two modes:
+Use one delivery mode:
 
-1. When the surface explicitly supports native audio attachments, render the
-   receipt's `path` with its audio player. Do not probe with image tools or
-   inline the audio as base64.
-2. Otherwise return the receipt's exact `delivery.fallback_markdown`. Do not
-   rewrite, combine, or omit its lines. It has this shape:
-
-   ````markdown
-   ---
-
-   Agent Voice recording recording.mp3
-   Listen: [web player](http://127.0.0.1:8779/player/recording.html) · [media app](file:///absolute/path/recording.mp3) · [raw audio](http://127.0.0.1:8779/recordings/recording.mp3)
-   ```sh
-   agent-voice play "/absolute/path/recording.mp3"
-   ```
-
-   ---
-   ````
-
-The viewer prefers localhost port `8779` and falls back to a free port if it is
-occupied. The receipt always contains the current URLs. The web player renders
-the branded document with its audio player and response text, the media-app link
-opens the local file with the operating system default, and raw audio serves the
-recording directly in a browser.
+1. If the current surface supports an audio player, render the receipt's `path`.
+2. Otherwise return the receipt's exact `delivery.fallback_markdown` unchanged.
 
 For a playback request, run `agent-voice play PATH --json` and report success
-only when the receipt's `played` value is `true`. `play` runs to completion;
-`Ctrl+C` stops it, and running the command again restarts from the beginning.
-Do not promise pause.
+only when the receipt's `played` value is `true`.
 
 ## Recovery
 

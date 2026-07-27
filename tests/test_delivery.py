@@ -39,7 +39,7 @@ def test_prepare_delivery_uses_http_player_audio_and_file_links(
     assert (
         f"Listen: [web player]({result.browser_url})"
         f" · [media app]({recording.as_uri()})"
-        f" · [raw audio]({result.audio_url})"
+        f" · [web audio]({result.audio_url})"
     ) in result.fallback_markdown
     command = result.fallback_markdown.split("```sh\n", 1)[1].splitlines()[0]
     if os.name == "nt":

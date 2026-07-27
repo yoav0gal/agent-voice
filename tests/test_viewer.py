@@ -87,14 +87,15 @@ def test_viewer_serves_supported_audio_and_dynamic_player(
     )
 
 
-def test_viewer_keeps_legacy_player_links_working(tmp_path):
+def test_viewer_rejects_legacy_player_links(tmp_path):
     recording = tmp_path / "legacy.mp3"
     recording.write_bytes(b"audio")
 
     with _running_viewer(tmp_path) as (_, url):
-        with urllib.request.urlopen(f"{url}/player/legacy.mp3") as response:
-            assert response.status == 200
-            assert response.headers["Content-Type"] == "text/html; charset=utf-8"
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(f"{url}/player/legacy.mp3")
+
+    assert rejected.value.code == 404
 
 
 def test_player_urls_keep_audio_formats_distinct(tmp_path):

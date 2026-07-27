@@ -45,38 +45,15 @@ complete path and filename; it takes precedence, so omit `--label`.
 3. Continue only after the final JSON line contains an absolute MP3 `path` and
    a `delivery` object. Treat the receipt as internal delivery data; do not
    paste the full JSON into the response unless the user requests it.
-4. Use one of two delivery modes:
-   - When the surface explicitly supports native audio attachments, attach the
-     MP3 before the written response and use its native player. Do not probe
-     with image tools or inline the audio as base64.
-   - Otherwise, put the receipt's exact `delivery.fallback_markdown` before the
-     written response. Do not rewrite, combine, or omit its lines. It has this
-     shape:
+4. Use one delivery mode:
+   - If the current surface supports an audio player, render the receipt's
+     `path` before the written response.
+   - Otherwise, put the receipt's exact `delivery.fallback_markdown` unchanged
+     before the written response.
 
-     ````markdown
-     ---
-
-     Agent Voice recording recording.mp3
-     Listen: [web player](http://127.0.0.1:8779/player/recording.html) · [media app](file:///absolute/path/recording.mp3) · [raw audio](http://127.0.0.1:8779/recordings/recording.mp3)
-     ```sh
-     agent-voice play "/absolute/path/recording.mp3"
-     ```
-
-     ---
-     ````
-
-     The viewer prefers localhost port `8779` and falls back to a free port if
-     it is occupied. The receipt contains the current URLs. The web player
-     renders the branded document with its audio player and response text, the
-     media-app link opens the local file with the operating system default, and
-     raw audio serves the recording directly in a browser.
-
-- For an explicit operating-system playback request, add `--play`; report
-  playback only when `played` is `true`.
-- To play an existing response, run `agent-voice play PATH --json`; report
-  success only when `played` is `true`.
-- `play` runs to completion. `Ctrl+C` stops it; running it again restarts from
-  the beginning. Do not promise pause.
+- For explicit playback of a new response, add `--play`. To play an existing
+  response, run `agent-voice play PATH --json`. Report playback only when
+  `played` is `true`.
 - If synthesis fails, send the written response with a brief failure note.
 
 ## Recovery

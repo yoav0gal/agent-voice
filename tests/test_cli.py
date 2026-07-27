@@ -290,7 +290,7 @@ def test_json_speak_uses_http_delivery_without_writing_html(
     assert (
         f"Listen: [web player]({result['delivery']['browser_url']})"
         f" · [media app]({result['file_uri']})"
-        f" · [raw audio]({result['delivery']['audio_url']})"
+        f" · [web audio]({result['delivery']['audio_url']})"
         in lines
     )
     assert lines[-3:] == ["```", "", "---"]

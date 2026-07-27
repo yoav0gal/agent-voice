@@ -97,24 +97,24 @@ class Handler(BaseHTTPRequestHandler):
             name = unquote(encoded, errors="strict")
         except (UnicodeError, ValueError):
             return None
-        if name.endswith(".html"):
-            player_name = name.removesuffix(".html")
-            if (
-                not player_name
-                or "/" in player_name
-                or "\\" in player_name
-                or Path(player_name).name != player_name
-            ):
-                return None
-            try:
-                recording_name = player_mapping_path(
-                    server.recordings,
-                    player_name,
-                ).read_text(encoding="utf-8")
-            except (OSError, UnicodeError):
-                return None
-            encoded = quote(recording_name, safe="")
-        return self._recording(encoded, server)
+        if not name.endswith(".html"):
+            return None
+        player_name = name.removesuffix(".html")
+        if (
+            not player_name
+            or "/" in player_name
+            or "\\" in player_name
+            or Path(player_name).name != player_name
+        ):
+            return None
+        try:
+            recording_name = player_mapping_path(
+                server.recordings,
+                player_name,
+            ).read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return None
+        return self._recording(quote(recording_name, safe=""), server)
 
     def _recording(self, encoded: str, server: Server) -> Path | None:
         try:
