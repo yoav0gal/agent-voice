@@ -100,11 +100,14 @@ def ensure_viewer(recordings_dir: Path | None = None) -> Viewer:
             time.sleep(0.05)
         returncode = process.poll()
         if returncode is None:
+            startup_state = _state()
             process.terminate()
             process.wait(timeout=2)
+            phase = startup_state.get("status", "state unavailable")
             raise RuntimeError(
                 "Recording viewer did not become healthy within "
-                f"{_STARTUP_TIMEOUT_SECONDS:g} seconds"
+                f"{_STARTUP_TIMEOUT_SECONDS:g} seconds "
+                f"(startup status: {phase})"
             )
         raise RuntimeError(
             f"Recording viewer exited during startup with status {returncode}"

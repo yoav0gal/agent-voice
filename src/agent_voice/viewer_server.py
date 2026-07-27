@@ -162,12 +162,23 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(recordings: Path, state_file: Path) -> None:
     recordings.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(
+        json.dumps(
+            {
+                "service": "agent-voice-viewer",
+                "pid": os.getpid(),
+                "status": "binding",
+                "recordings_dir": str(recordings.resolve()),
+            }
+        )
+    )
     server = create_server(recordings)
     state_file.write_text(
         json.dumps(
             {
                 "service": "agent-voice-viewer",
                 "pid": os.getpid(),
+                "status": "ready",
                 "port": server.server_port,
                 "recordings_dir": str(recordings.resolve()),
             }
