@@ -199,6 +199,7 @@ def test_label_names_recording_in_default_directory(tmp_path, monkeypatch, capsy
     )
     assert path.suffix == ".mp3"
     assert path.read_bytes() == b"recording"
+    assert path.with_suffix(".html").is_file()
 
 
 def test_unlabeled_recording_uses_agent_voice_name(tmp_path, monkeypatch, capsys):
@@ -212,9 +213,10 @@ def test_unlabeled_recording_uses_agent_voice_name(tmp_path, monkeypatch, capsys
     assert result["file_uri"] == path.as_uri()
     assert path.name.startswith("agent-voice-")
     assert path.suffix == ".mp3"
+    assert path.with_suffix(".html").is_file()
 
 
-def test_json_speak_uses_real_portable_delivery(tmp_path, monkeypatch, capsys):
+def test_json_speak_uses_real_html_delivery(tmp_path, monkeypatch, capsys):
     output = tmp_path / "response notes.mp3"
     monkeypatch.setattr(cli, "_speak_locally", _local_speech())
 
@@ -234,10 +236,11 @@ def test_json_speak_uses_real_portable_delivery(tmp_path, monkeypatch, capsys):
     assert result["path"] == str(output)
     assert result["file_uri"] == output.as_uri()
     assert set(result["delivery"]) == {"fallback_markdown"}
+    player = output.with_suffix(".html")
     lines = result["delivery"]["fallback_markdown"].splitlines()
     assert lines[:3] == [
         "Agent Voice recording response notes.mp3",
-        f"Listen: [media]({output.as_uri()})",
+        f"Listen: [browser]({player.as_uri()}) · [media]({output.as_uri()})",
         "```sh",
     ]
     assert lines[-1] == "```"
@@ -245,7 +248,8 @@ def test_json_speak_uses_real_portable_delivery(tmp_path, monkeypatch, capsys):
         assert lines[3] == f"agent-voice play {subprocess.list2cmdline([str(output)])}"
     else:
         assert shlex.split(lines[3]) == ["agent-voice", "play", str(output)]
-    assert set(tmp_path.iterdir()) == {output}
+    assert "Every visible word." in player.read_text()
+    assert set(tmp_path.iterdir()) == {output, player}
 
 
 def test_plain_speak_creates_only_audio(tmp_path, monkeypatch, capsys):
@@ -254,7 +258,9 @@ def test_plain_speak_creates_only_audio(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         cli,
         "prepare_delivery",
-        lambda _path: pytest.fail("plain speak must not compute delivery metadata"),
+        lambda *_args, **_kwargs: pytest.fail(
+            "plain speak must not compute delivery metadata"
+        ),
     )
 
     cli.main(
@@ -270,6 +276,37 @@ def test_plain_speak_creates_only_audio(tmp_path, monkeypatch, capsys):
 
     assert capsys.readouterr().out.startswith(f"Created {output}\n")
     assert set(tmp_path.iterdir()) == {output}
+
+
+def test_json_speak_keeps_audio_when_player_generation_fails(
+    tmp_path, monkeypatch, capsys
+):
+    output = tmp_path / "fallback.mp3"
+    monkeypatch.setattr(cli, "_speak_locally", _local_speech())
+
+    def fail_template():
+        raise OSError("template unavailable")
+
+    monkeypatch.setattr("agent_voice.delivery._player_template", fail_template)
+
+    cli.main(
+        [
+            "speak",
+            "Visible text.",
+            "--output",
+            str(output),
+            "--service",
+            "off",
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert output.read_bytes() == b"recording"
+    assert not output.with_suffix(".html").exists()
+    assert "[browser]" not in result["delivery"]["fallback_markdown"]
+    assert "Could not create HTML player" in captured.err
 
 
 def test_setup_prepares_model(tmp_path, monkeypatch, capsys):

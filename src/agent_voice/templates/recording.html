@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; media-src 'self' file:; style-src 'unsafe-inline'"
+  >
+  <title>$PAGE_TITLE</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: Canvas;
+      color: CanvasText;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 2rem 1rem;
+    }
+
+    main {
+      width: min(100%, 48rem);
+      margin: 0 auto;
+    }
+
+    .brand {
+      margin-bottom: 2rem;
+      font-size: 0.875rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0 0 1rem;
+      font-size: clamp(1.5rem, 4vw, 2rem);
+      overflow-wrap: anywhere;
+    }
+
+    h2 {
+      margin: 2rem 0 0.75rem;
+      font-size: 0.875rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    audio {
+      display: block;
+      width: 100%;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font: inherit;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="brand">Agent Voice</header>
+    <h1>$RECORDING_NAME</h1>
+    <audio controls preload="metadata">
+      <source src="$MEDIA_SOURCE" type="$MEDIA_TYPE">
+      <a href="$MEDIA_SOURCE">Open the recording</a>
+    </audio>
+    <section aria-labelledby="response-heading">
+      <h2 id="response-heading">Response</h2>
+      <pre>$RESPONSE_TEXT</pre>
+    </section>
+  </main>
+</body>
+</html>

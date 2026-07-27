@@ -54,8 +54,9 @@ printf '%s' "$VISIBLE_TEXT" |
 
 `--json` prints a machine-readable receipt containing the recording's absolute
 `path`, percent-encoded `file_uri`, audio metadata, and
-`delivery.fallback_markdown`. Without `--json`, `speak` creates only the audio
-recording.
+`delivery.fallback_markdown`. It also creates a secure, same-directory HTML
+player containing the native audio controls and escaped recording text.
+Without `--json`, `speak` creates only the audio recording.
 
 Agents use exactly two delivery routes:
 
@@ -64,12 +65,13 @@ Agents use exactly two delivery routes:
 
    ````markdown
    Agent Voice recording recording.mp3
-   Listen: [media](file:///absolute/path/recording.mp3)
+   Listen: [browser](file:///absolute/path/recording.html) · [media](file:///absolute/path/recording.mp3)
    ```sh
    agent-voice play "/absolute/path/recording.mp3"
    ```
    ````
 
+The browser link opens the generated local player without a recording server.
 The media link is standard Markdown over `file_uri`; the command works in any
 terminal with Agent Voice installed.
 

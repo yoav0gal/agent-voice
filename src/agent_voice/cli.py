@@ -410,7 +410,12 @@ def _speak(args: argparse.Namespace) -> None:
         result["service_fallback"] = True
     if args.json:
         result["file_uri"] = path.resolve().as_uri()
-        result["delivery"] = prepare_delivery(path)
+        delivery = prepare_delivery(path, text, audio_format=audio_format)
+        if delivery.warning is not None:
+            print(f"Warning: {delivery.warning}", file=sys.stderr)
+        result["delivery"] = {
+            "fallback_markdown": delivery.fallback_markdown,
+        }
         print(json.dumps(result))
     else:
         print(f"Created {path}")

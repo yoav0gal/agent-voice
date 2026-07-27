@@ -72,14 +72,15 @@ Use exactly one of two modes:
 
    ````markdown
    Agent Voice recording recording.mp3
-   Listen: [media](file:///absolute/path/recording.mp3)
+   Listen: [browser](file:///absolute/path/recording.html) · [media](file:///absolute/path/recording.mp3)
    ```sh
    agent-voice play "/absolute/path/recording.mp3"
    ```
    ````
 
-The media link is standard Markdown over the receipt's `file_uri`; the command
-works in any terminal with Agent Voice installed.
+The browser link opens the generated same-directory HTML player without a
+recording server. The media link is standard Markdown over the receipt's
+`file_uri`; the command works in any terminal with Agent Voice installed.
 
 For a playback request, run `agent-voice play PATH --json` and report success
 only when the receipt's `played` value is `true`. `play` runs to completion;
