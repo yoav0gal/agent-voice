@@ -238,16 +238,18 @@ def test_json_speak_uses_real_html_delivery(tmp_path, monkeypatch, capsys):
     assert set(result["delivery"]) == {"fallback_markdown"}
     player = output.with_suffix(".html")
     lines = result["delivery"]["fallback_markdown"].splitlines()
-    assert lines[:3] == [
+    assert lines[:5] == [
+        "---",
+        "",
         "Agent Voice recording response notes.mp3",
         f"Listen: [browser]({player.as_uri()}) · [media]({output.as_uri()})",
         "```sh",
     ]
-    assert lines[-1] == "```"
+    assert lines[-3:] == ["```", "", "---"]
     if os.name == "nt":
-        assert lines[3] == f"agent-voice play {subprocess.list2cmdline([str(output)])}"
+        assert lines[5] == f"agent-voice play {subprocess.list2cmdline([str(output)])}"
     else:
-        assert shlex.split(lines[3]) == ["agent-voice", "play", str(output)]
+        assert shlex.split(lines[5]) == ["agent-voice", "play", str(output)]
     assert "Every visible word." in player.read_text()
     assert set(tmp_path.iterdir()) == {output, player}
 

@@ -29,18 +29,20 @@ def test_prepare_delivery_creates_escaped_local_player_and_fallback(tmp_path):
     assert "<script>" not in document
     assert "base64" not in document
     lines = result.fallback_markdown.splitlines()
-    assert lines[:3] == [
+    assert lines[:5] == [
+        "---",
+        "",
         "Agent Voice recording Daily update & notes.mp3",
         f"Listen: [browser]({player.as_uri()}) · [media]({recording.as_uri()})",
         "```sh",
     ]
-    assert lines[-1] == "```"
+    assert lines[-3:] == ["```", "", "---"]
     if os.name == "nt":
-        assert lines[3] == (
+        assert lines[5] == (
             f"agent-voice play {subprocess.list2cmdline([str(recording.resolve())])}"
         )
     else:
-        assert shlex.split(lines[3]) == [
+        assert shlex.split(lines[5]) == [
             "agent-voice",
             "play",
             str(recording.resolve()),

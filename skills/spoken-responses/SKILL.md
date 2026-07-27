@@ -54,11 +54,15 @@ complete path and filename; it takes precedence, so omit `--label`.
      shape:
 
      ````markdown
+     ---
+
      Agent Voice recording recording.mp3
      Listen: [browser](file:///absolute/path/recording.html) · [media](file:///absolute/path/recording.mp3)
      ```sh
      agent-voice play "/absolute/path/recording.mp3"
      ```
+
+     ---
      ````
 
      The browser link opens the generated same-directory HTML player without a

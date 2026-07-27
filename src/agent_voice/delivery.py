@@ -60,11 +60,13 @@ def _fallback_markdown(path: Path, player_path: Path | None = None) -> str:
             f" · [media]({path.as_uri()})"
         )
     return (
+        "---\n\n"
         f"Agent Voice recording {path.name}\n"
         f"{listen}\n"
         "```sh\n"
         f"{_terminal_command(path)}\n"
-        "```"
+        "```\n\n"
+        "---"
     )
 
 
