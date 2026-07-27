@@ -14,5 +14,6 @@ models/*.onnx
 models/*.bin
 models/*.lock
 recordings/*
+IDEAS.md
 !models/.gitkeep
 !recordings/.gitkeep
