@@ -10,11 +10,9 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 from . import __version__
 from .audio import CONTENT_TYPES, play_audio, write_audio
-from .client import LOCAL_HOSTS
 from .config import FORMATS, load_defaults
 from .model import NamedVoice, SpeechModel, SynthesisRequest
 
@@ -33,13 +31,11 @@ def validate_payload(payload: object) -> SpeechRequest:
     if not isinstance(payload, dict):
         raise ValueError("JSON body must be an object")
     defaults = load_defaults()
-    text = payload.get("input", payload.get("text"))
+    text = payload.get("input")
     voice = payload.get("voice", defaults.voice)
     speed = payload.get("speed", defaults.speed)
     lang = payload.get("lang", "en-us")
-    audio_format = payload.get(
-        "response_format", payload.get("format", defaults.format)
-    )
+    audio_format = payload.get("response_format", defaults.format)
     play = payload.get("play", False)
     if not isinstance(text, str):
         raise ValueError("input must be a string")
@@ -131,7 +127,7 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
                     },
                 )
             return
-        if self.path not in ("/speak", "/v1/audio/speech"):
+        if self.path != "/v1/audio/speech":
             self._json(404, {"error": "Not found"})
             return
         try:
@@ -204,21 +200,16 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
         return payload
 
     def _host_is_local(self) -> bool:
-        raw_host = self.headers.get("Host", "")
-        try:
-            parsed = urlsplit(f"//{raw_host}")
-            port = parsed.port
-        except ValueError:
-            return False
         server = self.server
-        return (
-            isinstance(server, IdleHTTPServer)
-            and parsed.username is None
-            and parsed.password is None
-            and parsed.path in ("", "/")
-            and parsed.hostname in LOCAL_HOSTS
-            and port == server.server_port
-        )
+        if not isinstance(server, IdleHTTPServer):
+            return False
+        port = server.server_port
+        allowed = {
+            f"127.0.0.1:{port}",
+            f"localhost:{port}",
+            f"[::1]:{port}",
+        }
+        return self.headers.get("Host", "").lower() in allowed
 
     def _json(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload).encode()

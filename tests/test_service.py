@@ -47,6 +47,17 @@ def test_payload_uses_saved_defaults(tmp_path, monkeypatch):
     assert request.audio_format == "m4a"
 
 
+def test_legacy_payload_aliases_are_not_used(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
+    update_defaults(format="m4a")
+
+    with pytest.raises(ValueError, match="input must be a string"):
+        validate_payload({"text": "hello"})
+
+    request = validate_payload({"input": "hello", "format": "wav"})
+    assert request.audio_format == "m4a"
+
+
 @pytest.mark.parametrize(
     "payload,message",
     [
@@ -64,6 +75,63 @@ def test_bad_payloads_are_rejected(payload, message):
 def test_remote_bind_is_rejected():
     with pytest.raises(ValueError, match="only binds to localhost"):
         serve(object(), "0.0.0.0", 8765)
+
+
+@pytest.mark.parametrize(
+    "host_template",
+    [
+        "localhost:{port}?extra",
+        "localhost:{port}#fragment",
+        "user@localhost:{port}",
+        "localhost:{port}/path",
+        "localhost:{port}:extra",
+        "localhost:{port},attacker.example",
+        "localhost",
+        "localhost:{wrong_port}",
+    ],
+)
+def test_host_header_rejects_extra_or_mismatched_syntax(host_template):
+    server = create_server(object(), "127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_port
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/health",
+        headers={
+            "Host": host_template.format(port=port, wrong_port=port + 1),
+        },
+    )
+    try:
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(request, timeout=1)
+        assert rejected.value.code == 403
+        assert json.loads(rejected.value.read())["error"] == "Host must be localhost"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_legacy_speak_endpoint_is_not_available():
+    server = create_server(object(), "127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_port
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/speak",
+        data=b'{"input":"hello"}',
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(request, timeout=1)
+        assert rejected.value.code == 404
+        assert json.loads(rejected.value.read())["error"] == "Not found"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_health_and_speech_contract(tmp_path):
