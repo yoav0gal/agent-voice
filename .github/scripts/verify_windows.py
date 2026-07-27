@@ -92,7 +92,6 @@ def main() -> None:
         "off",
         "--output",
         str(local_wav),
-        "--json",
     )
     assert local["backend"] == "local"
     assert local["played"] is False
@@ -110,7 +109,6 @@ def main() -> None:
         "mp3",
         "--speed",
         "1.5",
-        "--json",
     )
     labeled_path = Path(str(labeled["path"]))
     assert labeled["backend"] == "local"
@@ -161,7 +159,6 @@ def main() -> None:
                 SERVICE_URL,
                 "--output",
                 str(service_wav),
-                "--json",
             )
             assert remote["backend"] == "service"
             assert remote["played"] is False

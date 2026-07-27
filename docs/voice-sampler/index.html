@@ -561,7 +561,7 @@
       const card = cards.find((item) => item.dataset.voice === voice);
       const name = card.querySelector('.voice-name').textContent;
       title.textContent = `${name} is your current pick.`;
-      command.textContent = `agent-voice speak "Your text" --voice ${voice} --play --json`;
+      command.textContent = `agent-voice speak "Your text" --voice ${voice} --play`;
       panel.classList.add('visible');
       localStorage.setItem('kokoroVoiceChoice', voice);
     }
