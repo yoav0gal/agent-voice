@@ -23,6 +23,8 @@ from .paths import project_root, recording_dir
 
 _TRANSCRIPT_DIRECTORY = ".agent-voice-viewer"
 _PLAYER_DIRECTORY = "players"
+_STARTUP_TIMEOUT_SECONDS = 15.0
+_STARTUP_HEALTH_TIMEOUT_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -84,16 +86,29 @@ def ensure_viewer(recordings_dir: Path | None = None) -> Viewer:
                 else {"start_new_session": True}
             ),
         )
-        for _ in range(100):
-            if process.poll() is not None:
+        deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            returncode = process.poll()
+            if returncode is not None:
                 break
-            current = _running(_state())
+            current = _running(
+                _state(),
+                timeout=_STARTUP_HEALTH_TIMEOUT_SECONDS,
+            )
             if current:
                 return current
             time.sleep(0.05)
-        process.terminate()
-        process.wait(timeout=2)
-        raise RuntimeError("Recording viewer did not start")
+        returncode = process.poll()
+        if returncode is None:
+            process.terminate()
+            process.wait(timeout=2)
+            raise RuntimeError(
+                "Recording viewer did not become healthy within "
+                f"{_STARTUP_TIMEOUT_SECONDS:g} seconds"
+            )
+        raise RuntimeError(
+            f"Recording viewer exited during startup with status {returncode}"
+        )
 
 
 def stop_viewer() -> Viewer:
@@ -236,12 +251,16 @@ def _state() -> dict[str, object]:
     return value if isinstance(value, dict) else {}
 
 
-def _running(state: dict[str, object]) -> Viewer | None:
+def _running(
+    state: dict[str, object],
+    *,
+    timeout: float = 0.25,
+) -> Viewer | None:
     try:
         port, pid = int(state["port"]), int(state["pid"])
         root = _root(state)
         with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/health", timeout=0.25
+            f"http://127.0.0.1:{port}/health", timeout=timeout
         ) as response:
             health = json.loads(response.read())
     except (KeyError, ValueError, OSError, urllib.error.URLError, json.JSONDecodeError):
