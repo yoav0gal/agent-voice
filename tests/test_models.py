@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import threading
+
+import pytest
 
 from agent_voice import kokoro as kokoro_module
 from agent_voice import paths as paths_module
@@ -128,3 +131,27 @@ def test_concurrent_downloads_share_one_verified_asset(tmp_path, monkeypatch):
     assert not second.is_alive()
     assert destination.read_bytes() == payload
     assert len(calls) == 1
+
+
+def test_failed_download_preserves_destination_and_removes_partial_file(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "tiny.onnx"
+    destination.write_bytes(b"existing model")
+    payload = b"incomplete"
+    asset = (
+        destination.name,
+        len(payload) + 1,
+        hashlib.sha256(payload).hexdigest(),
+    )
+    monkeypatch.setattr(
+        kokoro_module.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: io.BytesIO(payload),
+    )
+
+    with pytest.raises(RuntimeError, match="size mismatch"):
+        kokoro_module._download_asset(asset, destination, True)
+
+    assert destination.read_bytes() == b"existing model"
+    assert list(tmp_path.glob("*.part")) == []

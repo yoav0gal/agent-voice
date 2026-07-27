@@ -4,6 +4,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 
 import numpy as np
 import pytest
@@ -14,6 +15,7 @@ from agent_voice.client import (
     ensure_service,
     health_check,
     request_speech,
+    validate_service_url,
 )
 from agent_voice.config import update_defaults
 from agent_voice.model import (
@@ -24,6 +26,19 @@ from agent_voice.model import (
     VoiceCatalog,
 )
 from agent_voice.service import create_server, serve, validate_payload
+
+
+@contextmanager
+def _running_server(model):
+    server = create_server(model, "127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server, f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_openai_shaped_payload_is_validated():
@@ -78,6 +93,24 @@ def test_remote_bind_is_rejected():
 
 
 @pytest.mark.parametrize(
+    "service_url",
+    [
+        "https://localhost:8765",
+        "http://example.com:8765",
+        "http://user@localhost:8765",
+        "http://localhost:8765/path",
+        "http://localhost:8765?query",
+        "http://localhost:8765#fragment",
+        "http://localhost:8765:extra",
+        "http://localhost:70000",
+    ],
+)
+def test_service_url_rejects_non_local_or_ambiguous_syntax(service_url):
+    with pytest.raises(ValueError, match="Agent Voice service URL"):
+        validate_service_url(service_url)
+
+
+@pytest.mark.parametrize(
     "host_template",
     [
         "localhost:{port}?extra",
@@ -91,47 +124,32 @@ def test_remote_bind_is_rejected():
     ],
 )
 def test_host_header_rejects_extra_or_mismatched_syntax(host_template):
-    server = create_server(object(), "127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    port = server.server_port
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{port}/health",
-        headers={
-            "Host": host_template.format(port=port, wrong_port=port + 1),
-        },
-    )
-    try:
+    with _running_server(object()) as (server, url):
+        port = server.server_port
+        request = urllib.request.Request(
+            f"{url}/health",
+            headers={
+                "Host": host_template.format(port=port, wrong_port=port + 1),
+            },
+        )
         with pytest.raises(urllib.error.HTTPError) as rejected:
             urllib.request.urlopen(request, timeout=1)
         assert rejected.value.code == 403
         assert json.loads(rejected.value.read())["error"] == "Host must be localhost"
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
 
 
 def test_legacy_speak_endpoint_is_not_available():
-    server = create_server(object(), "127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    port = server.server_port
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{port}/speak",
-        data=b'{"input":"hello"}',
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
+    with _running_server(object()) as (_, url):
+        request = urllib.request.Request(
+            f"{url}/speak",
+            data=b'{"input":"hello"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         with pytest.raises(urllib.error.HTTPError) as rejected:
             urllib.request.urlopen(request, timeout=1)
         assert rejected.value.code == 404
         assert json.loads(rejected.value.read())["error"] == "Not found"
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
 
 
 def test_health_and_speech_contract(tmp_path):
@@ -154,11 +172,7 @@ def test_health_and_speech_contract(tmp_path):
             assert request.text == "hello from the client"
             return Speech(np.zeros(2_400, dtype=np.float32), 24_000, 0.01)
 
-    server = create_server(FakeModel(), "127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    url = f"http://127.0.0.1:{server.server_port}"
-    try:
+    with _running_server(FakeModel()) as (server, url):
         health = health_check(url)
         hostile_host = urllib.request.Request(
             f"{url}/health",
@@ -195,10 +209,6 @@ def test_health_and_speech_contract(tmp_path):
             1.0,
             "en-us",
         )
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
 
     assert health["service"] == "agent-voice"
     assert health["engine"] == "test-runtime"
@@ -239,37 +249,30 @@ def test_health_remains_available_while_speech_is_running(tmp_path):
             assert finish_synthesis.wait(timeout=2)
             return Speech(np.zeros(2_400, dtype=np.float32), 24_000, 0.01)
 
-    server = create_server(BlockingModel(), "127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    url = f"http://127.0.0.1:{server.server_port}"
+    with _running_server(BlockingModel()) as (_, url):
+        def speak():
+            try:
+                request_speech(
+                    url,
+                    "hello from the client",
+                    tmp_path / "service.wav",
+                    "wav",
+                    "af_heart",
+                    1.0,
+                    "en-us",
+                )
+            except Exception as error:  # pragma: no cover - asserted below
+                speech_errors.append(error)
 
-    def speak():
+        worker = threading.Thread(target=speak, daemon=True)
+        worker.start()
         try:
-            request_speech(
-                url,
-                "hello from the client",
-                tmp_path / "service.wav",
-                "wav",
-                "af_heart",
-                1.0,
-                "en-us",
-            )
-        except Exception as error:  # pragma: no cover - asserted below
-            speech_errors.append(error)
-
-    worker = threading.Thread(target=speak, daemon=True)
-    worker.start()
-    try:
-        assert synthesis_started.wait(timeout=1)
-        health = health_check(url, timeout=0.5)
-        assert health["status"] == "ok"
-    finally:
-        finish_synthesis.set()
-        worker.join(timeout=2)
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
+            assert synthesis_started.wait(timeout=1)
+            health = health_check(url, timeout=0.5)
+            assert health["status"] == "ok"
+        finally:
+            finish_synthesis.set()
+            worker.join(timeout=2)
 
     assert not speech_errors
     assert not worker.is_alive()

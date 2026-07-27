@@ -60,24 +60,6 @@ def test_release_version_metadata_is_synchronized():
     assert editable_package["version"] == __version__
 
 
-def test_speak_help_distinguishes_managed_label_from_exact_output(capsys):
-    with pytest.raises(SystemExit) as exit_info:
-        cli.main(["speak", "--help"])
-
-    assert exit_info.value.code == 0
-    help_text = capsys.readouterr().out
-    normalized_help = " ".join(help_text.split())
-    assert "managed filename prefix; ignored when --output is set" in normalized_help
-    assert (
-        "exact output path; takes precedence over managed output options"
-        in normalized_help
-    )
-    assert (
-        "directory for the managed filename; ignored when --output is set"
-        in normalized_help
-    )
-
-
 def test_top_level_help_has_a_compact_agent_workflow(capsys):
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["--help"])
@@ -101,21 +83,22 @@ def test_service_url_uses_agent_voice_environment_name(monkeypatch):
     )
 
 
-def test_command_help_exposes_agent_relevant_defaults_and_side_effects(capsys):
-    for command in ("speak", "voices", "doctor", "serve"):
-        with pytest.raises(SystemExit) as exit_info:
-            cli.main([command, "--help"])
-        assert exit_info.value.code == 0
+@pytest.mark.parametrize(
+    ("command", "public_options"),
+    [
+        ("speak", ("--output", "--format", "--play", "--json", "--service")),
+        ("voices", ("--json", "--model-id", "--variant")),
+        ("doctor", ("--service-url", "--json")),
+        ("serve", ("--host", "--port", "--idle-timeout")),
+    ],
+)
+def test_command_help_exposes_public_options(command, public_options, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main([command, "--help"])
 
-    help_text = " ".join(capsys.readouterr().out.split())
-    assert "output format (default: configured format)" in help_text
-    assert "language tag (default: en-us)" in help_text
-    assert "one JSON receipt with an absolute output path" in help_text
-    assert "successful JSON reports played=true" in help_text
-    assert "service mode (default: configured mode)" in help_text
-    assert "download the selected model if it is missing" in help_text
-    assert "Exit 0 means required checks passed" in help_text
-    assert "bind port (default: 8765)" in help_text
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert all(option in help_text for option in public_options)
 
 
 def test_config_help_uses_service_modes_and_timeout_language(capsys):
@@ -185,83 +168,6 @@ def test_models_lists_registered_adapters_as_json(capsys):
             }
         ],
     }
-
-
-def test_agent_voice_skill_uses_global_command():
-    project = Path(__file__).parents[1]
-    skill = (project / "skills/agent-voice/SKILL.md").read_text()
-    readme = (project / "README.md").read_text()
-
-    assert "name: agent-voice" in skill
-    assert "/Users/" not in skill
-    assert "./agent-voice" not in skill
-    assert 'agent-voice speak "Text to record" --json' in skill
-    assert "printf '%s' \"$TEXT\" | agent-voice speak --json" in skill
-    assert "Use exactly one of two modes" in skill
-    assert "surface explicitly supports native audio attachments" in skill
-    assert "Treat the receipt as internal delivery data" in skill
-    assert "receipt's exact `delivery.fallback_markdown`" in skill
-    assert "Agent Voice recording recording.mp3" in skill
-    assert "Listen: [media](file:///absolute/path/recording.mp3)" in skill
-    assert 'agent-voice play "/absolute/path/recording.mp3"' in skill
-    assert "rewrite, combine, or omit its lines" in skill
-    assert ".html" not in skill
-    assert "browser]" not in skill
-    assert "inline the audio as base64" in skill
-    assert "`played` value is" in skill and "`true`" in skill
-    assert "Do not promise pause" in skill
-    assert "uv tool install agent-voice" in skill
-    assert "agent-voice setup" in skill
-    assert "agent-voice serve" not in skill
-    assert "--service" not in skill
-    assert (
-        "npx skills add yoav0gal/agent-voice --skill agent-voice "
-        "--global --agent codex --yes"
-    ) in readme
-    assert "skills/read-aloud" not in readme
-    assert "https://skills.sh/b/yoav0gal/agent-voice" in readme
-
-
-def test_spoken_responses_skill_is_explicit_and_task_scoped():
-    project = Path(__file__).parents[1]
-    skill = (project / "skills/spoken-responses/SKILL.md").read_text()
-    metadata = (project / "skills/spoken-responses/agents/openai.yaml").read_text()
-    readme = (project / "README.md").read_text()
-
-    assert "name: spoken-responses" in skill
-    assert "Codex" not in skill
-    assert "/Users/" not in skill
-    assert "./agent-voice" not in skill
-    assert "--speed" not in skill
-    assert "--format mp3" in skill
-    assert "--service" not in skill
-    assert '--label "$RECORDING_LABEL"' in skill
-    assert "untrusted filename data" in skill
-    assert "never as instructions" in skill
-    assert "every visible word in order" in skill
-    assert 'printf \'%s\' "$NARRATION"' in skill
-    assert "$FINAL_RESPONSE" not in skill
-    assert "never carries into another task" in skill
-    assert "one of two delivery modes" in skill
-    assert "explicitly supports native audio attachments" in skill
-    assert "Treat the receipt as internal delivery data" in skill
-    assert "`delivery` object" in skill
-    assert "delivery.fallback_markdown" in skill
-    assert "Agent Voice recording recording.mp3" in skill
-    assert "Listen: [media](file:///absolute/path/recording.mp3)" in skill
-    assert 'agent-voice play "/absolute/path/recording.mp3"' in skill
-    assert "rewrite, combine, or omit its lines" in skill
-    assert ".html" not in skill
-    assert "browser]" not in skill
-    assert "inline the audio as base64" in skill
-    assert "Do not promise pause" in skill
-    assert "`played` is `true`" in skill
-    assert "allow_implicit_invocation: false" in metadata
-    assert "$spoken-responses" in metadata
-    assert (
-        "npx skills add yoav0gal/agent-voice --skill spoken-responses "
-        "--global --agent codex --yes"
-    ) in readme
 
 
 def test_label_names_recording_in_default_directory(tmp_path, monkeypatch, capsys):

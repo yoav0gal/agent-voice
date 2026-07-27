@@ -30,6 +30,10 @@ def validate_service_url(service_url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme != "http" or parsed.hostname not in LOCAL_HOSTS:
         raise ValueError("Agent Voice service URL must be localhost over http")
+    try:
+        parsed.port
+    except ValueError as error:
+        raise ValueError("Agent Voice service URL has an invalid port") from error
     if (
         parsed.username
         or parsed.password
