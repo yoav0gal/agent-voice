@@ -276,6 +276,7 @@ def test_health_remains_available_while_speech_is_running(tmp_path):
             return Speech(np.zeros(2_400, dtype=np.float32), 24_000, 0.01)
 
     with _running_server(BlockingModel()) as (_, url):
+
         def speak():
             try:
                 request_speech(

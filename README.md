@@ -147,10 +147,10 @@ The service setting is stored as one object. Timed mode includes its duration:
 
 ```sh
 # Create speech recordings or read text aloud
-npx skills add yoav0gal/agent-voice --skill agent-voice --global --agent codex --yes
+npx skills add yoav0gal/agent-voice --skill create-speech-recording --global --agent codex --yes
 
-# Add audio to explicitly opted-in written responses
-npx skills add yoav0gal/agent-voice --skill spoken-responses --global --agent codex --yes
+# Add audio to requested written responses
+npx skills add yoav0gal/agent-voice --skill spoken-response --global --agent codex --yes
 ```
 
 Use `--agent '*'` instead of `--agent codex` to install the same skills for all

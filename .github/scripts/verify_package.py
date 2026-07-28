@@ -117,9 +117,10 @@ def main() -> None:
         r"Package-E2E-\d{2}-\d{2}-\d{2}-at-\d{2}-\d{2}\.mp3",
         labeled_path.name,
     )
-    assert labeled_path.parent == (
-        Path(os.environ["AGENT_VOICE_HOME"]) / "recordings"
-    ).resolve()
+    assert (
+        labeled_path.parent
+        == (Path(os.environ["AGENT_VOICE_HOME"]) / "recordings").resolve()
+    )
     validate_mp3(labeled_path)
 
     log_path = output_dir / "service.log"

@@ -366,9 +366,11 @@ def test_managed_output_uses_portable_label_and_collision_suffix(tmp_path):
 
 def test_managed_reservations_are_unique_across_speakers(tmp_path):
     def speak(_index):
-        return make_speaker(tmp_path).speak(
-            SpeakRequest("Visible text.", SELECTION, label="SR", service="off")
-        ).recording.path
+        return (
+            make_speaker(tmp_path)
+            .speak(SpeakRequest("Visible text.", SELECTION, label="SR", service="off"))
+            .recording.path
+        )
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         paths = list(executor.map(speak, range(8)))

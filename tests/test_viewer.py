@@ -46,9 +46,7 @@ def _running_viewer(recordings: Path):
         ("sample.m4a", "audio/mp4"),
     ],
 )
-def test_viewer_serves_supported_audio_and_dynamic_player(
-    tmp_path, name, content_type
-):
+def test_viewer_serves_supported_audio_and_dynamic_player(tmp_path, name, content_type):
     recording = tmp_path / name
     recording.write_bytes(b"0123456789")
     player_name = publish_player(
@@ -62,12 +60,10 @@ def test_viewer_serves_supported_audio_and_dynamic_player(
             assert response.headers["Content-Type"] == content_type
             assert response.read() == b"0123456789"
 
-        with urllib.request.urlopen(
-            f"{url}/player/{player_name}"
-        ) as response:
+        with urllib.request.urlopen(f"{url}/player/{player_name}") as response:
             document = response.read().decode()
             assert response.headers["Content-Type"] == "text/html; charset=utf-8"
-            assert "<audio controls preload=\"metadata\">" in document
+            assert '<audio controls preload="metadata">' in document
             assert f'src="/recordings/{name}"' in document
             assert f'type="{content_type}"' in document
             assert f"<title>{name} · Agent Voice</title>" in document

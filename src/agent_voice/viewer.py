@@ -145,13 +145,9 @@ def publish_recording(
     counter = 2
     while True:
         try:
-            handle = os.open(
-                destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
-            )
+            handle = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
-            destination = base.with_name(
-                f"{base.stem}-{counter}{base.suffix}"
-            )
+            destination = base.with_name(f"{base.stem}-{counter}{base.suffix}")
             counter += 1
         else:
             os.close(handle)
@@ -248,9 +244,7 @@ def recording_urls(
 
 def _state() -> dict[str, object]:
     try:
-        value = json.loads(
-            (project_root() / "viewer.json").read_text(encoding="utf-8")
-        )
+        value = json.loads((project_root() / "viewer.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
@@ -289,7 +283,5 @@ def _stop(state: dict[str, object]) -> None:
 def _root(state: dict[str, object]) -> Path:
     value = state.get("recordings_dir")
     return (
-        Path(value).resolve()
-        if isinstance(value, str)
-        else recording_dir().resolve()
+        Path(value).resolve() if isinstance(value, str) else recording_dir().resolve()
     )

@@ -12,9 +12,7 @@ def _viewer(root: Path) -> Viewer:
     return Viewer(root.resolve(), 49123, 123)
 
 
-def test_prepare_delivery_uses_http_player_audio_and_file_links(
-    tmp_path, monkeypatch
-):
+def test_prepare_delivery_uses_http_player_audio_and_file_links(tmp_path, monkeypatch):
     recording = tmp_path / "Daily update & notes.mp3"
     recording.write_bytes(b"audio")
     monkeypatch.setattr(delivery, "ensure_viewer", _viewer)
@@ -81,9 +79,7 @@ def test_prepare_delivery_adds_real_format_to_extensionless_output(
     assert result.audio_url.endswith("/recordings/recording.opus")
 
 
-def test_prepare_delivery_preserves_existing_managed_recording(
-    tmp_path, monkeypatch
-):
+def test_prepare_delivery_preserves_existing_managed_recording(tmp_path, monkeypatch):
     output = tmp_path / "report.mp3"
     output.write_bytes(b"existing")
     external = tmp_path / "external" / "report.mp3"
@@ -108,9 +104,7 @@ def test_viewer_failure_keeps_audio_and_uses_file_fallback(tmp_path, monkeypatch
     monkeypatch.setattr(
         delivery,
         "ensure_viewer",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("not available")
-        ),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("not available")),
     )
 
     result = delivery.prepare_delivery(

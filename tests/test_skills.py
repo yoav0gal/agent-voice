@@ -5,16 +5,16 @@ from string import Template
 PROJECT = Path(__file__).parents[1]
 
 
-def test_agent_voice_skill_matches_the_cli_and_delivery_contract():
-    skill_root = PROJECT / "skills/agent-voice"
+def test_create_speech_recording_skill_matches_cli_and_delivery_contract():
+    skill_root = PROJECT / "skills/create-speech-recording"
     skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
     fallback = (skill_root / "references/recording-delivery.md").read_text(
         encoding="utf-8"
     )
 
-    assert "name: agent-voice" in skill
+    assert "name: create-speech-recording" in skill
     assert 'agent-voice speak "Text to record"' in skill
-    assert "printf '%s' \"$TEXT\" | agent-voice speak" in skill
+    assert 'agent-voice speak --label "$LABEL" < "$TEXT_FILE"' in skill
     assert "speak --json" not in skill
     assert "delivery.fallback_markdown" not in skill
     assert "references/recording-delivery.md" in skill
@@ -22,8 +22,8 @@ def test_agent_voice_skill_matches_the_cli_and_delivery_contract():
     assert "fallback-response.md" not in skill
     assert "fallback-response-local.md" not in skill
     assert "delivery.play_command" not in skill
-    assert "render the receipt's `path`" in skill
-    assert "`played` value is" in skill and "`true`" in skill
+    assert "render the returned `path`" in skill
+    assert "`played: true`" in skill
     assert "/Users/" not in skill
     assert "agent-voice serve" not in skill
     assert "$browser_url" in fallback and "$audio_url" in fallback
@@ -32,29 +32,30 @@ def test_agent_voice_skill_matches_the_cli_and_delivery_contract():
     assert "$PLAY_COMMAND" not in fallback
 
 
-def test_spoken_responses_skill_is_explicit_and_task_scoped():
-    skill_root = PROJECT / "skills/spoken-responses"
+def test_spoken_response_skill_matches_thread_modes_and_delivery_contract():
+    skill_root = PROJECT / "skills/spoken-response"
     skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
     metadata = (skill_root / "agents/openai.yaml").read_text(encoding="utf-8")
 
-    assert "name: spoken-responses" in skill
-    assert 'printf \'%s\' "$NARRATION"' in skill
+    assert "name: spoken-response" in skill
+    assert "spoken semantic twin" in skill
+    assert 'agent-voice speak --label "$LABEL" < "$TEXT_FILE"' in skill
     assert "$FINAL_RESPONSE" not in skill
-    assert "never carries into another Thread" in skill
+    assert "`Thread`" in skill
     assert "delivery.fallback_markdown" not in skill
     assert "references/recording-delivery.md" in skill
     assert "references/recording.md" not in skill
     assert "fallback-response.md" not in skill
     assert "fallback-response-local.md" not in skill
     assert "delivery.play_command" not in skill
-    assert "render the receipt's" in skill and "`path`" in skill
+    assert "render the returned" in skill and "`path`" in skill
     assert "--speed" not in skill and "--service" not in skill
-    assert "allow_implicit_invocation: false" in metadata
+    assert "allow_implicit_invocation: true" in metadata
 
 
 def test_independently_installable_skills_own_matching_fallback_references():
-    agent_voice = PROJECT / "skills/agent-voice/references"
-    spoken_responses = PROJECT / "skills/spoken-responses/references"
+    agent_voice = PROJECT / "skills/create-speech-recording/references"
+    spoken_responses = PROJECT / "skills/spoken-response/references"
 
     assert (agent_voice / "recording-delivery.md").read_text(encoding="utf-8") == (
         spoken_responses / "recording-delivery.md"
@@ -62,7 +63,7 @@ def test_independently_installable_skills_own_matching_fallback_references():
 
 
 def test_fallback_references_render_only_structured_receipt_values():
-    references = PROJECT / "skills/agent-voice/references"
+    references = PROJECT / "skills/create-speech-recording/references"
     common = {
         "file_uri": "file:///recordings/daily-update.mp3",
         "path": "/recordings/daily-update.mp3",
@@ -94,11 +95,11 @@ def test_readme_uses_the_published_skill_install_commands():
     readme = (PROJECT / "README.md").read_text(encoding="utf-8")
 
     assert (
-        "npx skills add yoav0gal/agent-voice --skill agent-voice "
+        "npx skills add yoav0gal/agent-voice --skill create-speech-recording "
         "--global --agent codex --yes"
     ) in readme
     assert (
-        "npx skills add yoav0gal/agent-voice --skill spoken-responses "
+        "npx skills add yoav0gal/agent-voice --skill spoken-response "
         "--global --agent codex --yes"
     ) in readme
     assert "skills/read-aloud" not in readme

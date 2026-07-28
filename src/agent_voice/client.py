@@ -215,9 +215,7 @@ def request_speech(
         voice=headers.get("X-Agent-Voice-Voice", voice),
         speed=speed if response_speed is None else response_speed,
         sample_rate=_number_header(headers.get("X-Agent-Voice-Sample-Rate"), int),
-        duration_seconds=_number_header(
-            headers.get("X-Agent-Voice-Duration"), float
-        ),
+        duration_seconds=_number_header(headers.get("X-Agent-Voice-Duration"), float),
         generation_seconds=_number_header(
             headers.get("X-Agent-Voice-Generation-Seconds"), float
         ),

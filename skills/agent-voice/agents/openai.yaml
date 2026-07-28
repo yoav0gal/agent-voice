@@ -1,4 +1,0 @@
-interface:
-  display_name: "Agent Voice"
-  short_description: "Create speech recordings with Agent Voice"
-  default_prompt: "Use $agent-voice to create a speech recording from this text and return the file."

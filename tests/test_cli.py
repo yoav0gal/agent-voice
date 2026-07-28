@@ -340,9 +340,7 @@ def test_play_command_stops_cleanly_on_keyboard_interrupt(
 
 
 @pytest.mark.parametrize("name", ["missing.mp3", "recording.flac"])
-def test_play_command_rejects_missing_or_unsupported_recordings(
-    tmp_path, name, capsys
-):
+def test_play_command_rejects_missing_or_unsupported_recordings(tmp_path, name, capsys):
     recording = tmp_path / name
     if recording.suffix == ".flac":
         recording.write_bytes(b"audio")

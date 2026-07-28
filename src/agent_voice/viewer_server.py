@@ -49,7 +49,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get(self, *, head: bool) -> None:
         server = self.server
-        if not isinstance(server, Server) or self.headers.get("Host", "").lower() not in {
+        if not isinstance(server, Server) or self.headers.get(
+            "Host", ""
+        ).lower() not in {
             f"127.0.0.1:{server.server_port}",
             f"localhost:{server.server_port}",
         }:
@@ -137,11 +139,7 @@ class Handler(BaseHTTPRequestHandler):
             path = (server.recordings / name).resolve(strict=True)
         except (OSError, UnicodeError, ValueError):
             return None
-        return (
-            path
-            if path.parent == server.recordings and path.is_file()
-            else None
-        )
+        return path if path.parent == server.recordings and path.is_file() else None
 
     def _send_file(self, path: Path, content_type: str, head: bool) -> None:
         size = path.stat().st_size
@@ -296,11 +294,7 @@ def _player(recording: Path) -> bytes:
 
 
 def _image_data_url(name: str) -> str:
-    image = (
-        resources.files("agent_voice")
-        .joinpath("templates", name)
-        .read_bytes()
-    )
+    image = resources.files("agent_voice").joinpath("templates", name).read_bytes()
     encoded = base64.b64encode(image).decode("ascii")
     return f"data:image/svg+xml;base64,{encoded}"
 

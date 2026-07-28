@@ -1,0 +1,7 @@
+interface:
+  display_name: "Spoken Response"
+  short_description: "Create spoken audio for assistant responses"
+  default_prompt: "Use $spoken-response for this response."
+
+policy:
+  allow_implicit_invocation: true

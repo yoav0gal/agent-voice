@@ -297,6 +297,7 @@ class IdleHTTPServer(ThreadingHTTPServer):
                 self.last_request_completed,
             )
 
+
 def create_server(
     model: SpeechModel,
     host: str,

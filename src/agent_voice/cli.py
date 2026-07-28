@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
             "examples:\n"
             "  agent-voice setup\n"
             "  printf '%s' \"$TEXT\" | agent-voice speak --format mp3\n"
-            "  agent-voice play \"/path/to/recording.mp3\"\n"
+            '  agent-voice play "/path/to/recording.mp3"\n'
             "  agent-voice doctor --json\n\n"
             "Agent speech: read the JSON path; only report playback when played=true."
         ),
@@ -486,5 +486,7 @@ def _viewer(args: argparse.Namespace) -> None:
         print(f"Recordings: {report.recordings_dir}")
     else:
         print("Recording viewer: stopped")
+
+
 if __name__ == "__main__":
     main()
