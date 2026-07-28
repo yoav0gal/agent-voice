@@ -1,112 +1,172 @@
-# Kokoro CLI
+# Agent Voice
 
-[![skills.sh](https://skills.sh/b/yoav0gal/kokoro-cli)](https://skills.sh/yoav0gal/kokoro-cli)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-voice-logo-voiceprint-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-voice-logo-voiceprint.svg">
+  <img src="assets/brand/agent-voice-logo-voiceprint.svg" alt="Agent Voice logo" width="720">
+</picture>
 
-Offline text-to-speech for people and AI agents. Kokoro CLI runs Kokoro-82M locally, creates WAV, MP3, Opus, or M4A recordings, plays them on the host, and exposes an optional localhost API.
+https://github.com/user-attachments/assets/975dcfd0-17ec-4912-b3b1-ec084077f858
 
-Audio generation is supported on Windows, macOS, and Linux with Python 3.11–3.13.
-Windows playback through `ffplay` is experimental because automated CI cannot
-prove audible output.
+Local text-to-speech for people and AI agents, powered by
+[Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (only English is supported).
+
+Agent Voice creates WAV, MP3, Opus, or M4A recordings on macOS, Linux, and
+Windows without an API key.
+
+Prebuilt dependencies cover macOS arm64/x64, Linux x64, and Windows x64.
+Linux arm64 currently needs a C build toolchain for miniaudio. Native Windows
+arm64 lacks an `imageio-ffmpeg` wheel; use x64 Python under Windows emulation.
 
 ## Quick start
 
-Install the CLI from PyPI:
-
 ```sh
-uv tool install kokoro-cli
-kokoro setup
-kokoro speak "Hello from Kokoro." --play --json
+uv tool install agent-voice
+agent-voice setup
+agent-voice speak "Hello from Agent Voice." --play
 ```
 
-`kokoro setup` downloads and verifies the default model and voices, about 121 MB. Synthesis is offline after setup.
+`agent-voice setup` downloads and verifies the speech model.
 
-Install [`uv`](https://docs.astral.sh/uv/) and optional FFmpeg on macOS with:
+## How to use
 
 ```sh
-brew install uv ffmpeg
+# See every recording option
+agent-voice speak --help
+
+# Create a recording
+agent-voice speak "The build is finished."
+
+# Play an existing recording
+agent-voice play "/absolute/path/recording.mp3"
+
+# Create an MP3 with a readable filename
+agent-voice speak "Here is your summary." --format mp3 --label summary
+
+# Choose a voice, speed, and exact output
+agent-voice speak "A slower reading." \
+  --voice bf_emma --speed 0.85 --output recording.opus
+
+# Safely pass agent text through stdin
+printf '%s' "$VISIBLE_TEXT" |
+  agent-voice speak --format mp3
 ```
 
-On Linux, use your package manager for FFmpeg. WAV works without it; MP3, Opus, M4A, and speeds above 2x require it. `pipx install kokoro-cli` is also supported.
+Every `agent-voice speak` command prints one machine-readable JSON receipt
+containing the recording's absolute `path`, percent-encoded `file_uri`, audio
+metadata, and a `delivery` object with optional `browser_url`, `audio_url`, and
+`recording_path` viewer facts.
 
-On Windows, install `uv`, then run the same `uv tool install kokoro-cli`
-command from PowerShell. Models, recordings, and configuration default to
-`%LOCALAPPDATA%\kokoro`. Install FFmpeg to enable compressed formats, speeds
-above 2x, and experimental `--play` support through `ffplay`.
+Agent Voice stores the recording plus private transcript metadata in its managed
+recordings directory. A lightweight localhost viewer renders the branded player
+document—with the recording name, native audio controls, and response text—and
+serves the actual WAV, MP3, Opus, or M4A recording. It starts automatically on
+port `8779`, or on a free port when `8779` is occupied.
 
-## Common commands
+Agents use exactly two delivery routes:
+
+1. Render `path` with the current surface's native audio player.
+2. Otherwise render the installed skill's editable `recording-delivery.md`
+   template using the structured receipt values:
+
+   ````markdown
+   Agent Voice recording recording.mp3
+   Listen: [web player](http://127.0.0.1:8779/player/recording.html) · [media app](file:///absolute/path/recording.mp3) · [web audio](http://127.0.0.1:8779/recordings/recording.mp3)
+   ```sh
+   agent-voice play "/absolute/path/recording.mp3"
+   ```
+   ````
+
+The CLI owns delivery facts, not agent-facing recording prose. Each
+independently installable skill carries `references/recording-delivery.md`,
+where its wording can be customized. The skill derives the media link and
+playback command from the receipt's `file_uri` and `path`, omitting viewer links
+when those optional delivery facts are unavailable.
+
+The viewer prefers port `8779` so links survive restarts. If that port is
+occupied, it selects a free port and reports it in the receipt. The web player
+renders the complete branded document, the media-app link opens the local file
+with the operating system default, and web audio serves the recording directly
+over HTTP.
+
+The virtual player URL uses the recording name with an `.html` extension. If
+that name already belongs to another format, Agent Voice adds `-2`, `-3`, and
+so on.
+
+Manage the lightweight viewer explicitly when needed:
 
 ```sh
-# Create and play a recording
-kokoro speak "The build is finished." --play
-
-# Pipe agent-friendly input and return a JSON receipt
-printf '%s' "Here is your summary." | kokoro speak --format mp3 --json
-
-# Choose a voice, speed, format, and output path
-kokoro speak "A slower reading." --voice bf_emma --speed 0.85 -o recording.opus
-
-# Discover voices and manage persistent defaults
-kokoro voices
-kokoro config --json
-kokoro config --voice bf_emma --speed 1.15
-kokoro config --reset
-
-# Verify the installation
-kokoro doctor --json
+agent-voice viewer start
+agent-voice viewer stop
 ```
 
-The default is `af_heart` at `1.0x`; supported speeds are `0.5`–`4.0`. Run `kokoro <command> --help` for all options.
+`--output` still writes the exact requested path. For HTTP delivery, Agent
+Voice copies that audio into the managed recordings directory instead of
+serving arbitrary filesystem paths or creating symlinks.
 
-Recordings and models use the platform user-data directory. Override it with `KOKORO_HOME`, `KOKORO_MODEL_DIR`, or `KOKORO_RECORDING_DIR`.
-
-## Agent skill
-
-Install the standalone [`read-aloud`](https://skills.sh/yoav0gal/kokoro-cli/read-aloud) skill globally for Codex:
+Explore the available voices and models, manage defaults, or check that Agent
+Voice is ready:
 
 ```sh
-npx skills add yoav0gal/kokoro-cli --skill read-aloud --global --agent codex --yes
+agent-voice voices
+agent-voice models
+agent-voice config --voice bf_emma --speed 1.15
+agent-voice doctor --json
 ```
 
-The skill is installed separately from this repository. It invokes the global `kokoro` command and installs `kokoro-cli` from PyPI when needed.
+## Defaults
 
-## Local API
+Run `agent-voice config` to view the active persisted settings and their
+configuration file.
 
-Start the localhost service:
+| Setting | Built-in default | Save as default | Override once |
+| --- | --- | --- | --- |
+| Voice | `af_heart` | `config --voice NAME` | `speak --voice NAME` |
+| Speed | `1.0×` | `config --speed NUMBER` | `speak --speed NUMBER` |
+| Audio format | MP3 | `config --format FORMAT` | `speak --format FORMAT` |
+| Recording directory | Agent Voice's `recordings/` directory | `config --output-dir DIR` | `speak --output-dir DIR` |
+| Service | `timed` for `10` minutes | `config --service MODE [--service-timeout MINUTES]` | `speak --service MODE [--service-timeout MINUTES]` |
 
-```sh
-kokoro serve
+`on` leaves the service running, `off` uses embedded inference, and `timed`
+stops the service after the configured number of idle minutes.
+
+The service setting is stored as one object. Timed mode includes its duration:
+
+```json
+{
+  "service": {
+    "mode": "timed",
+    "timeout_minutes": 10
+  }
+}
 ```
 
-Then request speech through the OpenAI-shaped endpoint:
+## Agent skills
+
+[View Agent Voice on skills.sh](https://skills.sh/b/yoav0gal/agent-voice).
 
 ```sh
-curl -sS http://127.0.0.1:8765/v1/audio/speech \
+# Create speech recordings or read text aloud
+npx skills add yoav0gal/agent-voice --skill create-speech-recording --global --agent codex --yes
+
+# Add audio to requested written responses
+npx skills add yoav0gal/agent-voice --skill spoken-response --global --agent codex --yes
+```
+
+Use `--agent '*'` instead of `--agent codex` to install the same skills for all
+agent destinations recognized by the skills CLI.
+
+## Local speech API
+
+```sh
+agent-voice serve
+
+curl http://127.0.0.1:8765/v1/audio/speech \
   -H 'Content-Type: application/json' \
-  -d '{"input":"Your agent has finished the task.","voice":"af_heart","response_format":"mp3"}' \
-  -o agent-message.mp3
+  -d '{"input":"The task is complete.","voice":"af_heart","response_format":"mp3"}' \
+  --output speech.mp3
 ```
 
-The service only accepts localhost connections. `speak` uses a healthy service automatically and falls back to embedded inference; use `--service required` or `--service off` for strict behavior.
-
-## Development
-
-```sh
-git clone https://github.com/yoav0gal/kokoro-cli.git
-cd kokoro-cli
-./kokoro setup
-./kokoro doctor --json
-uv run --frozen pytest -q
-```
-
-The checkout wrapper keeps its environment, models, and recordings inside the repository.
-On Windows, use `uv run --frozen kokoro setup` and
-`uv run --frozen kokoro doctor --json` from the checkout.
-
-## More
-
-- [Capabilities and product boundaries](https://github.com/yoav0gal/kokoro-cli/blob/main/docs/capabilities.html)
-- [ygent integration contract](https://github.com/yoav0gal/kokoro-cli/blob/main/docs/ygent-integration.md)
-- [Read-aloud skill source](https://github.com/yoav0gal/kokoro-cli/blob/main/skills/read-aloud/SKILL.md)
-- [Issues](https://github.com/yoav0gal/kokoro-cli/issues)
-
-Kokoro-82M weights are Apache 2.0, `kokoro-onnx` is MIT, and model assets come from the `model-files-v1.0` release of `thewh1teagle/kokoro-onnx`. See [third-party notices](https://github.com/yoav0gal/kokoro-cli/blob/main/THIRD_PARTY_NOTICES.md).
+The speech API binds only to localhost. It is separate from the lightweight
+recording viewer. `agent-voice speak` uses the speech API automatically when
+available and falls back to embedded inference.

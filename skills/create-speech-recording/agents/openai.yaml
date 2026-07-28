@@ -1,0 +1,7 @@
+interface:
+  display_name: "Create Speech Recording"
+  short_description: "Create audio recordings or speak text aloud"
+  default_prompt: "Use $create-speech-recording to create a speech recording from this text."
+
+policy:
+  allow_implicit_invocation: true

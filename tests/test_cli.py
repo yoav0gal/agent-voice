@@ -1,179 +1,352 @@
 from __future__ import annotations
 
+import io
 import json
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from kokoro_cli import cli
-from kokoro_cli.client import ServiceUnavailable
-from kokoro_cli.config import update_defaults
+from agent_voice import __version__, cli
+from agent_voice.model import ModelSelection, PreparedArtifact, SetupReceipt
+from agent_voice.speaking import SpeakRequest
+from agent_voice.viewer import Viewer
 
 
-def test_installed_command_and_parser_use_kokoro_name():
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path / "agent-home"))
+
+
+def test_installed_command_and_parser_use_agent_voice_name():
     project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
-    assert project["project"]["scripts"] == {"kokoro": "kokoro_cli.cli:main"}
-    assert cli.build_parser().prog == "kokoro"
+    assert project["project"]["scripts"] == {
+        "agent-voice": "agent_voice.cli:main",
+    }
+    assert cli.build_parser().prog == "agent-voice"
 
 
-def test_standalone_skill_uses_global_command():
-    project = Path(__file__).parents[1]
-    skill = (project / "skills/read-aloud/SKILL.md").read_text()
-    readme = (project / "README.md").read_text()
-    manifest = json.loads((project / "integrations/ygent.json").read_text())
+def test_release_version_metadata_is_synchronized():
+    project_root = Path(__file__).parents[1]
+    project = tomllib.loads((project_root / "pyproject.toml").read_text())
+    lock = tomllib.loads((project_root / "uv.lock").read_text())
+    editable_package = next(
+        package for package in lock["package"] if package["name"] == "agent-voice"
+    )
 
-    assert "name: read-aloud" in skill
-    assert not (project / "skills/kokoro-speak").exists()
-    assert "/Users/" not in skill
-    assert "./kokoro" not in skill
-    assert "kokoro speak" in skill
-    assert "uv tool install kokoro-cli" in skill
-    assert "kokoro setup" in skill
-    assert "kokoro config --json" in skill
-    assert "kokoro config --reset" in skill
-    assert "kokoro --help" in skill
-    assert "--play" in skill
-    assert "`played` is `true`" in skill
-    assert "kokoro voices" not in skill
-    assert "kokoro doctor" not in skill
-    assert "$VISIBLE_SCRIPT" not in skill
-    assert "kokoro serve" not in skill
-    assert "--service" not in skill
-    assert "Default voice:" not in skill
-    assert "Default speed:" not in skill
+    assert project["project"]["version"] == __version__
+    assert editable_package["version"] == __version__
+
+
+def test_top_level_help_has_a_compact_agent_workflow(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["--help"])
+
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "agent-voice setup" in help_text
+    assert "printf '%s' \"$TEXT\" | agent-voice speak --format mp3" in help_text
+    assert 'agent-voice play "/path/to/recording.mp3"' in help_text
+    assert "agent-voice doctor --json" in help_text
     assert (
-        "npx skills add yoav0gal/kokoro-cli --skill read-aloud "
-        "--global --agent codex --yes"
-    ) in readme
-    assert "https://skills.sh/b/yoav0gal/kokoro-cli" in readme
-    assert manifest["entrypoint"] == "kokoro"
+        "Agent speech: read the JSON path; only report playback when played=true."
+        in help_text
+    )
 
 
-def test_auto_service_falls_back_to_embedded(tmp_path, monkeypatch, capsys):
-    output = tmp_path / "fallback.wav"
-
-    def unavailable(*args, **kwargs):
-        raise ServiceUnavailable("not running")
-
-    def speak_locally(args, text, destination, audio_format):
-        destination.write_bytes(b"RIFF-local")
-        return {
-            "path": str(destination),
-            "format": audio_format,
-            "voice": args.voice,
-            "speed": args.speed,
-            "sample_rate": 24_000,
-            "duration_seconds": 1.0,
-            "generation_seconds": 0.1,
-            "backend": "local",
-        }
-
-    monkeypatch.setattr(cli, "health_check", unavailable)
-    monkeypatch.setattr(cli, "_speak_locally", speak_locally)
-
-    cli.main(["speak", "visible text", "-o", str(output), "--json"])
-
-    captured = capsys.readouterr()
-    result = json.loads(captured.out)
-    assert "using embedded inference" in captured.err
-    assert result["backend"] == "local"
-    assert result["service_fallback"] is True
-    assert result["played"] is False
+def test_service_url_uses_agent_voice_environment_name(monkeypatch):
+    monkeypatch.setenv("AGENT_VOICE_SERVICE_URL", "http://127.0.0.1:9002")
+    assert (
+        cli.build_parser().parse_args(["doctor"]).service_url == "http://127.0.0.1:9002"
+    )
 
 
-def test_required_service_does_not_fall_back(tmp_path, monkeypatch):
-    def unavailable(*args, **kwargs):
-        raise ServiceUnavailable("not running")
+@pytest.mark.parametrize("port", ("0", "-1", "65536", "not-a-port"))
+def test_serve_rejects_invalid_ports_during_argument_parsing(port, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["serve", "--port", port])
 
-    monkeypatch.setattr(cli, "health_check", unavailable)
+    assert exit_info.value.code == 2
+    assert "must be an integer from 1 to 65535" in capsys.readouterr().err
+
+
+def test_serve_accepts_the_highest_valid_port():
+    args = cli.build_parser().parse_args(["serve", "--port", "65535"])
+
+    assert args.port == 65_535
+
+
+@pytest.mark.parametrize(
+    ("command", "public_options"),
+    [
+        ("speak", ("--output", "--format", "--play", "--service")),
+        ("voices", ("--json", "--model-id", "--variant")),
+        ("doctor", ("--service-url", "--json")),
+        ("serve", ("--host", "--port", "--idle-timeout")),
+        ("viewer", ("start", "stop")),
+    ],
+)
+def test_command_help_exposes_public_options(command, public_options, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main([command, "--help"])
+
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert all(option in help_text for option in public_options)
+
+
+def test_config_help_uses_service_modes_and_timeout_language(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["config", "--help"])
+
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--service {on,off,timed}" in help_text
+    assert "--service-timeout MINUTES" in help_text
+    assert "--keep-alive" not in help_text
+
+
+def test_viewer_commands_report_start_and_stop(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "recordings"
+    running = Viewer(root, 49123, 123)
+    stopped = Viewer(root)
+    monkeypatch.setattr(cli, "resolved_recording_dir", lambda _configured: root)
+    monkeypatch.setattr(cli, "ensure_viewer", lambda selected: running)
+    monkeypatch.setattr(cli, "stop_viewer", lambda: stopped)
+
+    cli.main(["viewer", "start", "--json"])
+    assert json.loads(capsys.readouterr().out) == running.to_dict()
+    cli.main(["viewer", "stop", "--json"])
+    assert json.loads(capsys.readouterr().out) == stopped.to_dict()
+
+
+def test_model_arguments_separate_identity_from_variant():
+    parser = cli.build_parser()
+
+    default = cli._model_selection(parser.parse_args(["speak", "hello"]))
+    selected = cli._model_selection(
+        parser.parse_args(
+            [
+                "speak",
+                "hello",
+                "--model-id",
+                "kokoro",
+                "--variant",
+                "fp16",
+            ]
+        )
+    )
+    legacy = cli._model_selection(
+        parser.parse_args(["speak", "hello", "--model", "full"])
+    )
+
+    assert default == ModelSelection("kokoro", "int8")
+    assert selected == ModelSelection("kokoro", "fp16")
+    assert legacy == ModelSelection("kokoro", "full")
+
+
+def test_variant_and_legacy_model_alias_cannot_be_combined(capsys):
     with pytest.raises(SystemExit) as exit_info:
         cli.main(
             [
-                "speak",
-                "visible text",
-                "-o",
-                str(tmp_path / "required.wav"),
-                "--service",
-                "required",
+                "doctor",
+                "--variant",
+                "fp16",
+                "--model",
+                "int8",
             ]
         )
+
+    assert exit_info.value.code == 2
+    assert "--model cannot be combined with --variant" in capsys.readouterr().err
+
+
+def test_models_lists_registered_adapters_as_json(capsys):
+    cli.main(["models", "--json"])
+
+    assert json.loads(capsys.readouterr().out) == {
+        "default_model_id": "kokoro",
+        "models": [
+            {
+                "model_id": "kokoro",
+                "display_name": "Kokoro-82M",
+                "default_variant": "int8",
+                "variants": ["int8", "fp16", "full"],
+            }
+        ],
+    }
+
+
+def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, capsys):
+    captured = []
+    payload = {"path": str(tmp_path / "recording.wav"), "played": False}
+
+    class Receipt:
+        def to_dict(self):
+            return payload
+
+    class FakeSpeaker:
+        def speak(self, request):
+            captured.append(request)
+            return Receipt()
+
+    monkeypatch.setattr(cli, "Speaker", FakeSpeaker)
+    output = tmp_path / "recording.wav"
+
+    cli.main(
+        [
+            "speak",
+            "Visible text.",
+            "--output",
+            str(output),
+            "--label",
+            "ignored",
+            "--output-dir",
+            str(tmp_path / "managed"),
+            "--format",
+            "mp3",
+            "--voice",
+            "bf_emma",
+            "--speed",
+            "1.15",
+            "--lang",
+            "en-gb",
+            "--play",
+            "--model-id",
+            "kokoro",
+            "--variant",
+            "fp16",
+            "--service",
+            "timed",
+            "--service-timeout",
+            "2.5",
+            "--service-url",
+            "http://127.0.0.1:9000",
+        ]
+    )
+
+    assert captured == [
+        SpeakRequest(
+            text="Visible text.",
+            selection=ModelSelection("kokoro", "fp16"),
+            output=output,
+            label="ignored",
+            output_dir=tmp_path / "managed",
+            format="mp3",
+            voice="bf_emma",
+            speed=1.15,
+            language="en-gb",
+            play=True,
+            service="timed",
+            service_timeout_minutes=2.5,
+            service_url="http://127.0.0.1:9000",
+        )
+    ]
+    assert json.loads(capsys.readouterr().out) == payload
+
+
+def test_speak_reads_stdin_and_always_serializes_json(monkeypatch, capsys):
+    captured = []
+
+    class Receipt:
+        def to_dict(self):
+            return {"receipt": True}
+
+    class FakeSpeaker:
+        def speak(self, request):
+            captured.append(request)
+            return Receipt()
+
+    monkeypatch.setattr(cli, "Speaker", FakeSpeaker)
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO("Text from stdin."))
+
+    cli.main(["speak", "--service", "off"])
+
+    assert captured[0].text == "Text from stdin."
+    assert captured[0].service == "off"
+    assert json.loads(capsys.readouterr().out) == {"receipt": True}
+
+
+def test_speak_json_flag_is_not_available():
+    with pytest.raises(SystemExit) as exit_info:
+        cli.build_parser().parse_args(["speak", "Visible text.", "--json"])
+
     assert exit_info.value.code == 2
 
 
-def test_played_is_true_only_after_player_returns(tmp_path, monkeypatch, capsys):
-    output = tmp_path / "played.wav"
+def test_speaker_errors_use_cli_error_contract(monkeypatch, capsys):
+    class FakeSpeaker:
+        def speak(self, request):
+            raise ValueError("invalid request")
 
-    def speak_locally(args, text, destination, audio_format):
-        destination.write_bytes(b"RIFF-local")
-        return {
-            "path": str(destination),
-            "format": audio_format,
-            "voice": args.voice,
-            "speed": args.speed,
-            "sample_rate": 24_000,
-            "duration_seconds": 1.0,
-            "generation_seconds": 0.1,
-            "backend": "local",
-        }
+    monkeypatch.setattr(cli, "Speaker", FakeSpeaker)
 
-    played = []
-    monkeypatch.setattr(cli, "_speak_locally", speak_locally)
-    monkeypatch.setattr(cli, "play_audio", lambda path: played.append(path))
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["speak", "Visible text."])
 
-    cli.main(
-        [
-            "speak",
-            "visible text",
-            "-o",
-            str(output),
-            "--service",
-            "off",
-            "--play",
-            "--json",
-        ]
+    assert exit_info.value.code == 2
+    assert capsys.readouterr().err == "Error: invalid request\n"
+
+
+def test_setup_prepares_model(tmp_path, monkeypatch, capsys):
+    model_path = tmp_path / "model.onnx"
+    monkeypatch.setattr(
+        cli,
+        "_model",
+        lambda args: SimpleNamespace(
+            setup=lambda force=False: SetupReceipt(
+                (PreparedArtifact("Ready", model_path),)
+            )
+        ),
     )
 
-    result = json.loads(capsys.readouterr().out)
-    assert played == [output]
-    assert result["played"] is True
+    cli.main(["setup"])
+
+    assert capsys.readouterr().out == f"Ready: {model_path}\n"
 
 
-def test_speak_uses_saved_defaults(tmp_path, monkeypatch, capsys):
-    output = tmp_path / "configured.wav"
-    captured = {}
-    monkeypatch.setenv("KOKORO_HOME", str(tmp_path))
-    update_defaults(voice="bf_emma", speed=1.15)
+def test_play_command_plays_existing_recording(tmp_path, monkeypatch, capsys):
+    recording = tmp_path / "existing recording.mp3"
+    recording.write_bytes(b"audio")
+    calls = []
+    monkeypatch.setattr(cli, "play_audio", lambda path: calls.append(path))
 
-    def speak_locally(args, text, destination, audio_format):
-        captured.update(voice=args.voice, speed=args.speed)
-        destination.write_bytes(b"RIFF-local")
-        return {
-            "path": str(destination),
-            "format": audio_format,
-            "voice": args.voice,
-            "speed": args.speed,
-            "sample_rate": 24_000,
-            "duration_seconds": 1.0,
-            "generation_seconds": 0.1,
-            "backend": "local",
-        }
+    cli.main(["play", str(recording), "--json"])
 
-    monkeypatch.setattr(cli, "_speak_locally", speak_locally)
+    assert calls == [recording]
+    assert json.loads(capsys.readouterr().out) == {
+        "path": str(recording),
+        "played": True,
+    }
 
-    cli.main(
-        [
-            "speak",
-            "visible text",
-            "--service",
-            "off",
-            "--output",
-            str(output),
-            "--json",
-        ]
+
+def test_play_command_stops_cleanly_on_keyboard_interrupt(
+    tmp_path, monkeypatch, capsys
+):
+    recording = tmp_path / "recording.mp3"
+    recording.write_bytes(b"audio")
+    monkeypatch.setattr(
+        cli,
+        "play_audio",
+        lambda _path: (_ for _ in ()).throw(KeyboardInterrupt),
     )
 
-    result = json.loads(capsys.readouterr().out)
-    assert captured == {"voice": "bf_emma", "speed": 1.15}
-    assert result["voice"] == "bf_emma"
-    assert result["speed"] == 1.15
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["play", str(recording)])
+
+    assert exit_info.value.code == 130
+    assert capsys.readouterr().err == "Playback stopped\n"
+
+
+@pytest.mark.parametrize("name", ["missing.mp3", "recording.flac"])
+def test_play_command_rejects_missing_or_unsupported_recordings(tmp_path, name, capsys):
+    recording = tmp_path / name
+    if recording.suffix == ".flac":
+        recording.write_bytes(b"audio")
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["play", str(recording)])
+
+    assert exit_info.value.code == 2
+    assert "Error:" in capsys.readouterr().err

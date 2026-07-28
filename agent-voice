@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+: "${AGENT_VOICE_HOME:=$PROJECT_DIR}"
+export AGENT_VOICE_HOME
+exec uv run --project "$PROJECT_DIR" agent-voice "$@"
