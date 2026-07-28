@@ -44,8 +44,7 @@ agent-voice speak "Viewer smoke test." \
   <p>The receipt contains the generated <code>path</code>, plus:</p>
   <pre><code>delivery.browser_url
 delivery.audio_url
-delivery.recording_path
-delivery.fallback_markdown</code></pre>
+delivery.recording_path</code></pre>
   <p>Routes normally use port <code>8779</code>; use the reported port after a
     collision:</p>
   <pre><code>http://127.0.0.1:&lt;port&gt;/player/&lt;recording&gt;.html
@@ -62,8 +61,10 @@ http://127.0.0.1:&lt;port&gt;/recordings/&lt;recording.ext&gt;</code></pre>
       exists and the HTTP copy in <code>delivery.recording_path</code> also works.</li>
     <li>Run <code>viewer stop</code>; old links should stop. The next JSON recording
       should restart the viewer on port <code>8779</code> unless it is occupied.</li>
-    <li>If the viewer cannot start, confirm <code>fallback_markdown</code> still
-      provides the file link and <code>agent-voice play</code> command.</li>
+    <li>If the viewer cannot start, confirm the viewer URLs are absent. The
+      installed skill should render its <code>recording-delivery.md</code> template using the receipt's
+      top-level <code>path</code> and <code>file_uri</code>, omitting the
+      unavailable viewer links.</li>
   </ol>
 
   <p class="note"><strong>Deliberate limit:</strong> links remain stable while

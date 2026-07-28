@@ -54,8 +54,8 @@ printf '%s' "$VISIBLE_TEXT" |
 
 Every `agent-voice speak` command prints one machine-readable JSON receipt
 containing the recording's absolute `path`, percent-encoded `file_uri`, audio
-metadata, and a `delivery` object with `browser_url`, `audio_url`,
-`recording_path`, and `fallback_markdown`.
+metadata, and a `delivery` object with optional `browser_url`, `audio_url`, and
+`recording_path` viewer facts.
 
 Agent Voice stores the recording plus private transcript metadata in its managed
 recordings directory. A lightweight localhost viewer renders the branded player
@@ -66,7 +66,8 @@ port `8779`, or on a free port when `8779` is occupied.
 Agents use exactly two delivery routes:
 
 1. Render `path` with the current surface's native audio player.
-2. Otherwise return `delivery.fallback_markdown` unchanged:
+2. Otherwise render the installed skill's editable `recording-delivery.md`
+   template using the structured receipt values:
 
    ````markdown
    Agent Voice recording recording.mp3
@@ -75,6 +76,12 @@ Agents use exactly two delivery routes:
    agent-voice play "/absolute/path/recording.mp3"
    ```
    ````
+
+The CLI owns delivery facts, not agent-facing recording prose. Each
+independently installable skill carries `references/recording-delivery.md`,
+where its wording can be customized. The skill derives the media link and
+playback command from the receipt's `file_uri` and `path`, omitting viewer links
+when those optional delivery facts are unavailable.
 
 The viewer prefers port `8779` so links survive restarts. If that port is
 occupied, it selects a free port and reports it in the receipt. The web player

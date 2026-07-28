@@ -7,22 +7,14 @@ description: Create and deliver local speech recordings with Agent Voice. Use wh
 
 Use the Agent Voice CLI to create a text-to-speech recording.
 
-## Setup
-
-On first use, or when readiness is missing:
-
-```sh
-uv tool install agent-voice
-agent-voice setup
-```
-
-Setup prepares the speech model.
+Agent Voice accepts English text only.
 
 ## Record
 
 Prepare the text as you would naturally say it:
 
-- For plain text supplied by the user, preserve every word and punctuation mark.
+- When reading supplied text aloud, preserve every word and punctuation mark.
+  - When audio accompanies a written response as a listening medium for it (not summary or extra explanation), record the exact visible wording.
 - For formatted text, preserve its spoken wording and order while omitting only
   presentation syntax such as Markdown markers.
 - For a requested summary or explanation, write it for natural speech without
@@ -66,14 +58,25 @@ Use `--output` only when the user requests an exact path or filename.
 Use one delivery mode:
 
 1. If the current surface supports an audio player, render the receipt's `path`.
-2. Otherwise return the receipt's exact `delivery.fallback_markdown` unchanged.
+2. Otherwise render
+   [recording-delivery.md](references/recording-delivery.md) before the written
+   response using values from the `agent-voice speak` response:
+   - `$path`: `path`
+   - `$file_uri`: `file_uri`
+   - `$browser_url`: `delivery.browser_url`
+   - `$audio_url`: `delivery.audio_url`
+   - If the viewer fields are absent, remove their links and separators.
 
-For a playback request, run `agent-voice play PATH --json` and report success
-only when the receipt's `played` value is `true`.
+For a playback request, run `agent-voice play PATH --json`.
 
 ## Recovery
 
-If Agent Voice is unavailable, run the Setup commands above.
+If Agent Voice is unavailable, run the Setup commands:
+
+```sh
+uv tool install agent-voice
+agent-voice setup
+```
 
 ## Resources
 

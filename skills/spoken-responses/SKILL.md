@@ -5,7 +5,7 @@ description: Use Agent Voice to add matching local audio to explicitly requested
 
 # Spoken Responses
 
-Use Agent Voice to create a local MP3 containing every visible word of the
+Use Agent Voice to create a local recording containing every visible word of the
 final response, then attach it or provide its local recording details above
 the written answer.
 
@@ -13,7 +13,7 @@ the written answer.
 
 - An invocation applies to the current response unless the user enables it for
   the current task.
-- Task scope continues until disabled and never carries into another task.
+- Thread scope continues until disabled and never carries into another Thread.
 - Disabling takes effect before the current response unless the user requests
   one last recording.
 
@@ -47,8 +47,14 @@ complete path and filename; it takes precedence, so omit `--label`.
 4. Use one delivery mode:
    - If the current surface supports an audio player, render the receipt's
      `path` before the written response.
-   - Otherwise, put the receipt's exact `delivery.fallback_markdown` unchanged
-     before the written response.
+   - Otherwise, render
+     [recording-delivery.md](references/recording-delivery.md) before the
+     written response using values from the `agent-voice speak` response:
+     - `$path`: `path`
+     - `$file_uri`: `file_uri`
+     - `$browser_url`: `delivery.browser_url`
+     - `$audio_url`: `delivery.audio_url`
+     - If the viewer fields are absent, remove their links and separators.
 
 - For explicit playback of a new response, add `--play`. To play an existing
   response, run `agent-voice play PATH --json`. Report playback only when

@@ -53,7 +53,6 @@ def delivery_success(calls: list | None = None):
             calls.append((recording, text, audio_format, recordings_dir))
         resolved = recording.resolve()
         return Delivery(
-            fallback_markdown=f"Listen to {resolved.name}",
             browser_url="http://127.0.0.1:49123/player/recording.html",
             audio_url="http://127.0.0.1:49123/recordings/recording.mp3",
             recording_path=resolved,
@@ -497,14 +496,11 @@ def test_delivery_receives_the_planned_recording_root(tmp_path):
     assert receipt.delivery.browser_url is not None
 
 
-def test_delivery_fallback_is_typed_serialized_and_reported(tmp_path):
+def test_delivery_failure_facts_are_typed_serialized_and_reported(tmp_path):
     notices = []
 
     def fallback(recording, text, *, audio_format, recordings_dir):
-        return Delivery(
-            fallback_markdown=f"Listen: {recording.as_uri()}",
-            warning="viewer unavailable",
-        )
+        return Delivery(warning="viewer unavailable")
 
     receipt = make_speaker(
         tmp_path,
@@ -512,9 +508,7 @@ def test_delivery_fallback_is_typed_serialized_and_reported(tmp_path):
         notices=notices,
     ).speak(SpeakRequest("Visible text.", SELECTION, service="off"))
 
-    assert receipt.to_dict()["delivery"] == {
-        "fallback_markdown": f"Listen: {receipt.recording.path.as_uri()}"
-    }
+    assert receipt.to_dict()["delivery"] == {}
     assert notices == ["Warning: viewer unavailable"]
 
 
@@ -530,7 +524,6 @@ def test_receipt_serialization_preserves_public_json_shape(tmp_path):
         backend="service",
     )
     delivery = Delivery(
-        fallback_markdown="fallback",
         browser_url="http://127.0.0.1:49123/player/recording.html",
         audio_url="http://127.0.0.1:49123/recordings/recording.mp3",
         recording_path=recording.path,
@@ -559,7 +552,6 @@ def test_receipt_serialization_preserves_public_json_shape(tmp_path):
         "service_fallback": True,
         "file_uri": recording.path.as_uri(),
         "delivery": {
-            "fallback_markdown": "fallback",
             "browser_url": "http://127.0.0.1:49123/player/recording.html",
             "audio_url": "http://127.0.0.1:49123/recordings/recording.mp3",
             "recording_path": str(recording.path),

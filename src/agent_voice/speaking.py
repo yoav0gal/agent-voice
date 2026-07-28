@@ -68,9 +68,7 @@ class SpeakReceipt:
         if self.service_fallback:
             payload["service_fallback"] = True
         payload["file_uri"] = self.recording.path.resolve().as_uri()
-        delivery: dict[str, object] = {
-            "fallback_markdown": self.delivery.fallback_markdown
-        }
+        delivery: dict[str, object] = {}
         if self.delivery.browser_url is not None:
             delivery.update(
                 {
