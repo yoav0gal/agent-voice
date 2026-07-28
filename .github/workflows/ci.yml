@@ -2,10 +2,15 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -26,18 +31,39 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
+      - name: Cache verified Kokoro model
+        if: matrix.python-version == '3.13'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/agent-voice-data/models
+          key: kokoro-v1-int8-${{ runner.os }}-${{ runner.arch }}
+
       - name: Lint
-        run: uv run --frozen ruff check src tests
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        run: uv run --frozen ruff check src tests .github/scripts
 
       - name: Test
         run: uv run --frozen pytest -q
 
-      - name: Build packages
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+      - name: Build package
+        if: matrix.python-version == '3.13'
         run: uv build
 
+      - name: Install built wheel
+        if: matrix.python-version == '3.13'
+        run: |
+          uv venv --python ${{ matrix.python-version }} .ci-venv
+          uv pip install --python .ci-venv/bin/python dist/*.whl
+
+      - name: Verify installed package with real model, audio, doctor, and service
+        if: matrix.python-version == '3.13'
+        env:
+          AGENT_VOICE_HOME: ${{ runner.temp }}/agent-voice-data
+        run: |
+          .ci-venv/bin/python .github/scripts/verify_package.py .ci-venv/bin/agent-voice
+
   windows:
-    name: windows-latest / Python ${{ matrix.python-version }} / package E2E
+    name: windows-latest / Python ${{ matrix.python-version }}
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -54,21 +80,21 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Cache verified Kokoro model
+        if: matrix.python-version == '3.13'
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/agent-voice-data/models
-          key: kokoro-v1-int8-windows
-
-      - name: Lint
-        run: uv run --frozen ruff check src tests .github/scripts
+          key: kokoro-v1-int8-${{ runner.os }}-${{ runner.arch }}
 
       - name: Test
         run: uv run --frozen pytest -q
 
       - name: Build package
+        if: matrix.python-version == '3.13'
         run: uv build
 
       - name: Install built wheel
+        if: matrix.python-version == '3.13'
         shell: pwsh
         run: |
           uv venv --python ${{ matrix.python-version }} .ci-venv
@@ -76,8 +102,9 @@ jobs:
           uv pip install --python .ci-venv\Scripts\python.exe $wheel
 
       - name: Verify installed package with real model, audio, doctor, and service
+        if: matrix.python-version == '3.13'
         shell: pwsh
         env:
           AGENT_VOICE_HOME: ${{ runner.temp }}/agent-voice-data
         run: |
-          .ci-venv\Scripts\python.exe .github\scripts\verify_windows.py .ci-venv\Scripts\agent-voice.exe
+          .ci-venv\Scripts\python.exe .github\scripts\verify_package.py .ci-venv\Scripts\agent-voice.exe

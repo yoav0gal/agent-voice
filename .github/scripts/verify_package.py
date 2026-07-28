@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -73,10 +74,9 @@ def check_doctor(report: dict[str, object], service_status: str) -> None:
 
 
 def main() -> None:
-    if sys.platform != "win32":
-        raise RuntimeError("This verification is intentionally Windows-only")
     cli = Path(sys.argv[1]).resolve()
-    output_dir = Path(os.environ["RUNNER_TEMP"]) / "agent-voice-windows-e2e"
+    system = platform.system()
+    output_dir = Path(os.environ["RUNNER_TEMP"]) / "agent-voice-package-e2e"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     subprocess.run([str(cli), "setup", "--model", "int8"], check=True)
@@ -87,7 +87,7 @@ def main() -> None:
     local = run_cli(
         cli,
         "speak",
-        "Windows generation verification.",
+        f"{system} generation verification.",
         "--service",
         "off",
         "--output",
@@ -100,11 +100,11 @@ def main() -> None:
     labeled = run_cli(
         cli,
         "speak",
-        "Windows labeled speed verification.",
+        f"{system} labeled speed verification.",
         "--service",
         "off",
         "--label",
-        "Windows E2E",
+        "Package E2E",
         "--format",
         "mp3",
         "--speed",
@@ -114,10 +114,12 @@ def main() -> None:
     assert labeled["backend"] == "local"
     assert labeled["speed"] == 1.5
     assert re.fullmatch(
-        r"Windows-E2E-\d{2}-\d{2}-\d{2}-at-\d{2}-\d{2}\.mp3",
+        r"Package-E2E-\d{2}-\d{2}-\d{2}-at-\d{2}-\d{2}\.mp3",
         labeled_path.name,
     )
-    assert labeled_path.parent == Path(os.environ["AGENT_VOICE_HOME"]) / "recordings"
+    assert labeled_path.parent == (
+        Path(os.environ["AGENT_VOICE_HOME"]) / "recordings"
+    ).resolve()
     validate_mp3(labeled_path)
 
     log_path = output_dir / "service.log"
@@ -152,7 +154,7 @@ def main() -> None:
             remote = run_cli(
                 cli,
                 "speak",
-                "Windows localhost service verification.",
+                f"{system} localhost service verification.",
                 "--service",
                 "on",
                 "--service-url",
@@ -171,6 +173,7 @@ def main() -> None:
                 service.kill()
                 service.wait(timeout=10)
     print(log_path.read_text(encoding="utf-8", errors="replace"))
+    print(f"Verified installed package on {system}")
 
 
 if __name__ == "__main__":

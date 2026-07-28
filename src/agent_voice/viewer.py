@@ -248,7 +248,9 @@ def recording_urls(
 
 def _state() -> dict[str, object]:
     try:
-        value = json.loads((project_root() / "viewer.json").read_text())
+        value = json.loads(
+            (project_root() / "viewer.json").read_text(encoding="utf-8")
+        )
     except (OSError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}

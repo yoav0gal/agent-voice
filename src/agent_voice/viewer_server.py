@@ -220,7 +220,8 @@ def serve(recordings: Path, state_file: Path) -> None:
                 "status": "binding",
                 "recordings_dir": str(recordings.resolve()),
             }
-        )
+        ),
+        encoding="utf-8",
     )
     server = create_server(recordings)
     state_file.write_text(
@@ -232,7 +233,8 @@ def serve(recordings: Path, state_file: Path) -> None:
                 "port": server.server_port,
                 "recordings_dir": str(recordings.resolve()),
             }
-        )
+        ),
+        encoding="utf-8",
     )
     os.chmod(state_file, 0o600)
     server.serve_forever()

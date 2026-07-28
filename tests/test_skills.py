@@ -7,8 +7,10 @@ PROJECT = Path(__file__).parents[1]
 
 def test_agent_voice_skill_matches_the_cli_and_delivery_contract():
     skill_root = PROJECT / "skills/agent-voice"
-    skill = (skill_root / "SKILL.md").read_text()
-    fallback = (skill_root / "references/recording-delivery.md").read_text()
+    skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    fallback = (skill_root / "references/recording-delivery.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "name: agent-voice" in skill
     assert 'agent-voice speak "Text to record"' in skill
@@ -32,8 +34,8 @@ def test_agent_voice_skill_matches_the_cli_and_delivery_contract():
 
 def test_spoken_responses_skill_is_explicit_and_task_scoped():
     skill_root = PROJECT / "skills/spoken-responses"
-    skill = (skill_root / "SKILL.md").read_text()
-    metadata = (skill_root / "agents/openai.yaml").read_text()
+    skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    metadata = (skill_root / "agents/openai.yaml").read_text(encoding="utf-8")
 
     assert "name: spoken-responses" in skill
     assert 'printf \'%s\' "$NARRATION"' in skill
@@ -54,9 +56,9 @@ def test_independently_installable_skills_own_matching_fallback_references():
     agent_voice = PROJECT / "skills/agent-voice/references"
     spoken_responses = PROJECT / "skills/spoken-responses/references"
 
-    assert (agent_voice / "recording-delivery.md").read_text() == (
+    assert (agent_voice / "recording-delivery.md").read_text(encoding="utf-8") == (
         spoken_responses / "recording-delivery.md"
-    ).read_text()
+    ).read_text(encoding="utf-8")
 
 
 def test_fallback_references_render_only_structured_receipt_values():
@@ -66,7 +68,7 @@ def test_fallback_references_render_only_structured_receipt_values():
         "path": "/recordings/daily-update.mp3",
     }
 
-    fallback = (references / "recording-delivery.md").read_text()
+    fallback = (references / "recording-delivery.md").read_text(encoding="utf-8")
     viewer = Template(fallback).substitute(
         **common,
         browser_url="http://127.0.0.1:8779/player/daily-update.html",
@@ -89,7 +91,7 @@ def test_fallback_references_render_only_structured_receipt_values():
 
 
 def test_readme_uses_the_published_skill_install_commands():
-    readme = (PROJECT / "README.md").read_text()
+    readme = (PROJECT / "README.md").read_text(encoding="utf-8")
 
     assert (
         "npx skills add yoav0gal/agent-voice --skill agent-voice "

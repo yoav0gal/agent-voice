@@ -57,7 +57,7 @@ def load_defaults() -> SpeechDefaults:
     if not path.is_file():
         return SpeechDefaults()
     try:
-        payload = json.loads(path.read_text())
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(
             f"Could not read Agent Voice config at {path}: {error}"
@@ -217,7 +217,7 @@ def _write_config(defaults: SpeechDefaults) -> None:
     )
     temporary = Path(temporary_name)
     try:
-        with os.fdopen(descriptor, "w") as output:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
             json.dump(defaults.to_dict(), output, indent=2)
             output.write("\n")
         temporary.replace(path)
