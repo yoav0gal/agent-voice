@@ -1,4 +1,4 @@
-# Agent Voice
+
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-voice-logo-voiceprint-dark.svg">
@@ -6,157 +6,176 @@
   <img src="assets/brand/agent-voice-logo-voiceprint.svg" alt="Agent Voice logo" width="720">
 </picture>
 
+---
+
 https://github.com/user-attachments/assets/975dcfd0-17ec-4912-b3b1-ec084077f858
 
-Local text-to-speech for people and AI agents, powered by
-[Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (only English is supported).
+Agent Voice gives AI agents the ability to create local speech recordings.
 
-Agent Voice creates WAV, MP3, Opus, or M4A recordings on macOS, Linux, and
-Windows without an API key.
+AI agents produce useful work, but they still communicate mostly through text.
+Every response competes for a developer's visual attention, so valuable work is
+often skimmed or missed.
 
-Prebuilt dependencies cover macOS arm64/x64, Linux x64, and Windows x64.
-Linux arm64 currently needs a C build toolchain for miniaudio. Native Windows
-arm64 lacks an `imageio-ffmpeg` wheel; use x64 Python under Windows emulation.
+My initial use case was listening alongside the text: text-to-speech for coding
+agents such as Codex and Claude Code.
 
-## Quick start
+The larger idea is simple: audio should be a first-class medium for agents.
+
+Agent Voice runs locally, uses
+[Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M), and requires no API
+key. English is the best-supported language. The bundled 54-voice catalog also
+covers Japanese, Mandarin Chinese, Spanish, French, Hindi, Italian, and
+Brazilian Portuguese, though quality varies.
+
+[Check them out here](https://rewind.ai/voices/).
+
+## Install and setup
+
+Install the CLI and download the speech model:
 
 ```sh
 uv tool install agent-voice
 agent-voice setup
+```
+
+Install the skills globally for your coding agent (recommended):
+
+```sh
+npx skills add yoav0gal/agent-voice --skill create-speech-recording --global
+npx skills add yoav0gal/agent-voice --skill spoken-response --global
+```
+
+
+Test it:
+
+```sh
 agent-voice speak "Hello from Agent Voice." --play
 ```
 
-`agent-voice setup` downloads and verifies the speech model.
+## Skills
 
-## How to use
+Agent Voice includes two example skills:
+
+- **create-speech-recording** turns supplied text into audio. Use it when you
+  want an agent to create a recording or read something aloud.
+- **spoken-response** creates an audio version of an agent's written response.
+  Use it when you want to listen to a long answer instead of reading it.
+
+These skills are starting points, not fixed workflows. Copy them, edit them,
+and make them yours. You can change delivery wording, recording defaults,
+playback behavior, or when the agent should offer audio.
+
+Each skill owns its agent instructions and an editable
+`references/recording-delivery.md` template. The CLI returns structured facts;
+the skill decides how those facts are presented.
+
+## CLI
+
+The CLI provides small primitives that agents can combine. Run
+`agent-voice COMMAND --help` for the full options of any command.
+
+| Command | What it does |
+| --- | --- |
+| `setup` | Download and verify speech model assets. |
+| `speak` | Turn text or stdin into a recording. |
+| `play` | Play an existing local recording. |
+| `voices` | List supported language tags and voices. |
+| `models` | List speech models and variants. |
+| `config` | View or change persistent defaults. |
+| `doctor` | Check that Agent Voice is ready. |
+| `viewer start\|stop` | Manage the local recording viewer. |
+| `serve` | Start the localhost speech API. |
+
+### Speak
 
 ```sh
-# See every recording option
-agent-voice speak --help
-
-# Create a recording
+# Positional text
 agent-voice speak "The build is finished."
 
-# Play an existing recording
-agent-voice play "/absolute/path/recording.mp3"
+# Agent output through stdin
+printf '%s' "$TEXT" | agent-voice speak --label build-summary
 
-# Create an MP3 with a readable filename
-agent-voice speak "Here is your summary." --format mp3 --label summary
+# Spoken text and written Markdown in one command
+agent-voice speak "$TEXT" --markdown "$RESPONSE" --label response
 
-# Choose a voice, speed, and exact output
-agent-voice speak "A slower reading." \
-  --voice bf_emma --speed 0.85 --output recording.opus
+# Show the written response while playing a speech-friendly narration
+agent-voice speak --response-file response.md < narration.txt
 
-# Safely pass agent text through stdin
-printf '%s' "$VISIBLE_TEXT" |
-  agent-voice speak --format mp3
+# Choose the output and delivery
+agent-voice speak "Here is your summary." \
+  --voice bf_emma --speed 1.2 --format mp3 --play
 ```
 
-Every `agent-voice speak` command prints one machine-readable JSON receipt
-containing the recording's absolute `path`, percent-encoded `file_uri`, audio
-metadata, and a `delivery` object with optional `browser_url`, `audio_url`, and
-`recording_path` viewer facts.
+| Option | Purpose |
+| --- | --- |
+| `-o, --output PATH` | Write to an exact path. |
+| `--label TEXT` | Set the managed filename prefix. |
+| `--markdown TEXT` | Show an inline Markdown response in the viewer. |
+| `--response-file PATH` | Show a Markdown response in the browser viewer. |
+| `--output-dir DIR` | Choose the managed output directory. |
+| `-f, --format FORMAT` | Use `wav`, `mp3`, `opus`, or `m4a`. |
+| `-v, --voice NAME` | Select a voice. |
+| `--lang TAG` | Set the language tag (default: `en-us`). |
+| `--speed NUMBER` | Set pitch-preserving playback speed. |
+| `--play` | Play the recording after creation. |
+| `--service on\|off\|timed` | Control background inference. |
+| `--service-timeout MINUTES` | Set the idle timeout for timed mode. |
+| `--model-id ID`, `--variant NAME` | Select a model and build. |
 
-Agent Voice stores the recording plus private transcript metadata in its managed
-recordings directory. A lightweight localhost viewer renders the branded player
-document—with the recording name, native audio controls, and response text—and
-serves the actual WAV, MP3, Opus, or M4A recording. It starts automatically on
-port `8779`, or on a free port when `8779` is occupied.
+`speak` prints one JSON receipt with the absolute recording path, file URI,
+audio metadata, playback status, and available viewer links. This makes the
+command reliable for both people and agents.
 
-Agents use exactly two delivery routes:
-
-1. Render `path` with the current surface's native audio player.
-2. Otherwise render the installed skill's editable `recording-delivery.md`
-   template using the structured receipt values:
-
-   ````markdown
-   Agent Voice recording recording.mp3
-   Listen: [web player](http://127.0.0.1:8779/player/recording.html) · [media app](file:///absolute/path/recording.mp3) · [web audio](http://127.0.0.1:8779/recordings/recording.mp3)
-   ```sh
-   agent-voice play "/absolute/path/recording.mp3"
-   ```
-   ````
-
-The CLI owns delivery facts, not agent-facing recording prose. Each
-independently installable skill carries `references/recording-delivery.md`,
-where its wording can be customized. The skill derives the media link and
-playback command from the receipt's `file_uri` and `path`, omitting viewer links
-when those optional delivery facts are unavailable.
-
-The viewer prefers port `8779` so links survive restarts. If that port is
-occupied, it selects a free port and reports it in the receipt. The web player
-renders the complete branded document, the media-app link opens the local file
-with the operating system default, and web audio serves the recording directly
-over HTTP.
-
-The virtual player URL uses the recording name with an `.html` extension. If
-that name already belongs to another format, Agent Voice adds `-2`, `-3`, and
-so on.
-
-Manage the lightweight viewer explicitly when needed:
+### Configure defaults
 
 ```sh
-agent-voice viewer start
-agent-voice viewer stop
+# Show current defaults
+agent-voice config
+
+# Set your preferred voice, speed, format, and output directory
+agent-voice config --voice bf_emma --speed 1.15 --format mp3 --output-dir ./recordings
+
+# Restore built-in defaults
+agent-voice config --reset
 ```
 
-`--output` still writes the exact requested path. For HTTP delivery, Agent
-Voice copies that audio into the managed recordings directory instead of
-serving arbitrary filesystem paths or creating symlinks.
+The same values can be overridden per recording with `speak`. Service modes are
+`on` for a persistent local service, `off` for embedded inference, and `timed`
+to stop the service after an idle timeout.
 
-Explore the available voices and models, manage defaults, or check that Agent
-Voice is ready:
+### Discover and diagnose
 
 ```sh
 agent-voice voices
 agent-voice models
-agent-voice config --voice bf_emma --speed 1.15
+agent-voice doctor
 agent-voice doctor --json
 ```
 
-## Defaults
+`voices` groups each installed voice under its supported `--lang` tag. Select a
+pair with `agent-voice speak --lang TAG --voice VOICE "Text"`.
 
-Run `agent-voice config` to view the active persisted settings and their
-configuration file.
+Use `--json` with `voices`, `models`, `config`, or `doctor` when another tool or
+agent will consume the result. 
 
-| Setting | Built-in default | Save as default | Override once |
-| --- | --- | --- | --- |
-| Voice | `af_heart` | `config --voice NAME` | `speak --voice NAME` |
-| Speed | `1.0×` | `config --speed NUMBER` | `speak --speed NUMBER` |
-| Audio format | MP3 | `config --format FORMAT` | `speak --format FORMAT` |
-| Recording directory | Agent Voice's `recordings/` directory | `config --output-dir DIR` | `speak --output-dir DIR` |
-| Service | `timed` for `10` minutes | `config --service MODE [--service-timeout MINUTES]` | `speak --service MODE [--service-timeout MINUTES]` |
-
-`on` leaves the service running, `off` uses embedded inference, and `timed`
-stops the service after the configured number of idle minutes.
-
-The service setting is stored as one object. Timed mode includes its duration:
-
-```json
-{
-  "service": {
-    "mode": "timed",
-    "timeout_minutes": 10
-  }
-}
-```
-
-## Agent skills
-
-[View Agent Voice on skills.sh](https://skills.sh/b/yoav0gal/agent-voice).
+### Play and view recordings
 
 ```sh
-# Create speech recordings or read text aloud
-npx skills add yoav0gal/agent-voice --skill create-speech-recording --global --agent codex --yes
-
-# Add audio to requested written responses
-npx skills add yoav0gal/agent-voice --skill spoken-response --global --agent codex --yes
+agent-voice play "/absolute/path/recording.mp3"
+agent-voice viewer start
+agent-voice viewer stop
 ```
 
-Use `--agent '*'` instead of `--agent codex` to install the same skills for all
-agent destinations recognized by the skills CLI.
+The lightweight viewer starts automatically when needed and serves only local
+recordings. It prefers `http://127.0.0.1:8779` and selects a free port if that
+port is unavailable.
 
-## Local speech API
+> 🗒️ The viewer is a workaround for agent surfaces that do not support embedded
+audio. I expect native text-to-speech to become common across these platforms,
+which would be a better solution. For now, the viewer keeps playback and the
+written response together in a local page. 🗒️
+
+### Local speech API
 
 ```sh
 agent-voice serve
@@ -167,6 +186,11 @@ curl http://127.0.0.1:8765/v1/audio/speech \
   --output speech.mp3
 ```
 
-The speech API binds only to localhost. It is separate from the lightweight
-recording viewer. `agent-voice speak` uses the speech API automatically when
-available and falls back to embedded inference.
+The API binds to localhost. `speak` uses it when available and falls back to
+embedded inference.
+
+
+### platform limitations
+Prebuilt dependencies support macOS arm64/x64, Linux x64, and Windows x64.
+Linux arm64 requires a C build toolchain for miniaudio. On Windows arm64, use
+x64 Python under emulation.

@@ -21,7 +21,7 @@ from agent_voice.viewer import (
     transcript_path,
 )
 from agent_voice import viewer_server
-from agent_voice.viewer_server import DEFAULT_VIEWER_PORT, Server
+from agent_voice.viewer_server import DEFAULT_VIEWER_PORT, Server, _image_data_url
 
 
 @contextmanager
@@ -47,11 +47,18 @@ def _running_viewer(recordings: Path):
     ],
 )
 def test_viewer_serves_supported_audio_and_dynamic_player(tmp_path, name, content_type):
+    assert _image_data_url("brand-logo.svg") != _image_data_url(
+        "brand-logo.svg", dark_wordmark=True
+    )
     recording = tmp_path / name
     recording.write_bytes(b"0123456789")
     player_name = publish_player(
         recording,
-        'Visible <script>alert("no")</script> response.',
+        '# Visible **response**\n\n<script>alert("no")</script>\n\n'
+        "> A quotation\n\n- [x] Done\n- [ ] Pending\n\n"
+        "> [!NOTE]\n> An alert\n\nhttps://example.com\n\n"
+        '```python\nprint("hello")\n```\n\n'
+        "```not-a-language\n<plain>\n```",
     )
 
     with _running_viewer(tmp_path) as (_, url):
@@ -73,14 +80,35 @@ def test_viewer_serves_supported_audio_and_dynamic_player(tmp_path, name, conten
             assert 'class="brand-logo"' in document
             assert 'class="recording-icon"' in document
             assert document.count('src="data:image/svg+xml;base64,') == 2
-            assert '<h2 id="response-heading">Response</h2>' in document
+            assert 'media="(prefers-color-scheme: dark)"' in document
+            assert 'srcset="data:image/svg+xml;base64,' in document
+            assert ">Response</h2>" not in document
+            assert document.index("<audio ") < document.index('class="recording-icon"')
+            assert (
+                '<div class="response"><h1>Visible <strong>response</strong></h1>'
+                in document
+            )
+            assert '<ul class="contains-task-list">' in document
+            assert 'type="checkbox" checked=""' in document
+            assert '<span class="nb">print</span>' in document
+            assert '<span style="color:' not in document
+            assert "&quot;hello&quot;" in document
+            assert '<code class="language-not-a-language">&lt;plain&gt;' in document
+            assert "<blockquote>" in document
+            assert 'class="markdown-alert markdown-alert-note"' in document
+            assert '<a href="https://example.com">https://example.com</a>' in document
+            assert "prefers-color-scheme: dark" in document
             assert "&lt;script&gt;" in document
             assert "<script>" not in document
 
     assert recording.is_file()
     assert transcript_path(recording).is_file()
     assert transcript_path(recording).read_text() == (
-        'Visible <script>alert("no")</script> response.'
+        '# Visible **response**\n\n<script>alert("no")</script>\n\n'
+        "> A quotation\n\n- [x] Done\n- [ ] Pending\n\n"
+        "> [!NOTE]\n> An alert\n\nhttps://example.com\n\n"
+        '```python\nprint("hello")\n```\n\n'
+        "```not-a-language\n<plain>\n```"
     )
 
 

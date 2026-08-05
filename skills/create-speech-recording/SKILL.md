@@ -1,15 +1,16 @@
 ---
 name: create-speech-recording
-description: Turn English text into speech with Agent Voice. Use for creating audio recordings and speaking text aloud.
+description: Turn text into speech with Agent Voice. Use for creating audio recordings and speaking text aloud.
 ---
 
 # Create Speech Recording
 
-Agent Voice accepts English text only.
+Agent Voice works best in English. For another supported language, choose a
+matching voice with `agent-voice voices` and pass `--voice` and `--lang`.
 
 ## Prepare
 
-Set `TEXT` to the text to record:
+Set `RESPONSE` to the original text or Markdown. Set `TEXT` to its spoken form:
 
 - For supplied text, preserve every word and punctuation mark in order while
   translating presentation syntax into speech.
@@ -20,13 +21,13 @@ Set `TEXT` to the text to record:
 ## Record
 
 ```sh
-agent-voice speak "Text to record"
+agent-voice speak "$TEXT" --markdown "$RESPONSE"
 ```
 
-For long text, use a file:
+For long text, use files:
 
 ```sh
-agent-voice speak --label "$LABEL" < "$TEXT_FILE"
+agent-voice speak --label "$LABEL" --response-file "$RESPONSE_FILE" < "$TEXT_FILE"
 ```
 
 Set `LABEL` to a short subject. For an exact requested filename, replace

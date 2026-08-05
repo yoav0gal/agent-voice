@@ -16,10 +16,33 @@
   <title>$PAGE_TITLE</title>
   <style>
     :root {
-      color-scheme: light;
+      color-scheme: light dark;
+      --background: #fffaf7;
+      --foreground: #211c1a;
+      --muted: #635752;
+      --surface: #f2ebe7;
+      --border: #d8cec8;
+      --quote: #c8b8af;
+      --link: #1d4ed8;
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #fffaf7;
-      color: #211c1a;
+      background: var(--background);
+      color: var(--foreground);
+    }
+
+    $PYGMENTS_LIGHT
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --background: #171311;
+        --foreground: #f7f3eb;
+        --muted: #b9aaa2;
+        --surface: #26201d;
+        --border: #493d37;
+        --quote: #6b554b;
+        --link: #8ab4ff;
+      }
+
+      $PYGMENTS_DARK
     }
 
     * {
@@ -29,6 +52,7 @@
     body {
       margin: 0;
       padding: 2rem 1rem;
+      background: var(--background);
     }
 
     main {
@@ -37,7 +61,7 @@
     }
 
     .brand {
-      margin-bottom: 2rem;
+      margin-bottom: 0.75rem;
     }
 
     .brand-logo {
@@ -78,28 +102,159 @@
       width: 100%;
     }
 
-    pre {
-      margin: 0;
-      white-space: pre-wrap;
+    section {
+      margin-top: 2rem;
+    }
+
+    .response {
       overflow-wrap: anywhere;
-      font: inherit;
       line-height: 1.6;
+    }
+
+    .response > :first-child {
+      margin-top: 0;
+    }
+
+    .response > :last-child {
+      margin-bottom: 0;
+    }
+
+    .response h1,
+    .response h2,
+    .response h3 {
+      margin: 1.5rem 0 0.5rem;
+      letter-spacing: normal;
+      text-transform: none;
+    }
+
+    .response h1 {
+      font-size: 1.5rem;
+    }
+
+    .response h2 {
+      font-size: 1.25rem;
+    }
+
+    .response h3 {
+      font-size: 1.1rem;
+    }
+
+    .response a {
+      color: var(--link);
+      text-underline-offset: 0.15em;
+    }
+
+    .response blockquote {
+      margin: 1rem 0;
+      padding: 0.1rem 1rem;
+      border-left: 0.25rem solid var(--quote);
+      color: var(--muted);
+    }
+
+    .response ul,
+    .response ol {
+      padding-left: 1.5rem;
+    }
+
+    .response li + li {
+      margin-top: 0.25rem;
+    }
+
+    .response .contains-task-list,
+    .response .task-list-item {
+      list-style: none;
+    }
+
+    .response .contains-task-list {
+      padding-left: 0;
+    }
+
+    .response .task-list-item-checkbox {
+      margin: 0 0.5rem 0 0;
+      accent-color: var(--link);
+    }
+
+    .response pre {
+      overflow-x: auto;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      border-radius: 0.5rem;
+    }
+
+    .response code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .response :not(pre) > code {
+      padding: 0.1em 0.3em;
+      background: var(--surface);
+      border-radius: 0.25rem;
+      font-size: 0.9em;
+    }
+
+    .response table {
+      display: block;
+      max-width: 100%;
+      overflow-x: auto;
+      border-collapse: collapse;
+    }
+
+    .response thead {
+      background: var(--surface);
+    }
+
+    .response th,
+    .response td {
+      padding: 0.4rem 0.6rem;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+
+    .response hr {
+      border: 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .response img {
+      max-width: 100%;
+      height: auto;
+    }
+
+    .response .markdown-alert {
+      margin: 1rem 0;
+      padding: 0.25rem 1rem;
+      border-left: 0.25rem solid var(--link);
+      background: var(--surface);
+    }
+
+    .response .markdown-alert-title {
+      margin-bottom: 0;
+      color: var(--foreground);
+      font-weight: 700;
     }
   </style>
 </head>
 <body>
   <main>
     <header class="brand">
-      <img
-        class="brand-logo"
-        src="$BRAND_LOGO"
-        alt="Agent Voice"
-        width="480"
-        height="205"
-      >
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="$BRAND_LOGO_DARK">
+        <img
+          class="brand-logo"
+          src="$BRAND_LOGO"
+          alt="Agent Voice"
+          width="480"
+          height="93"
+        >
+      </picture>
     </header>
     <h1>$RECORDING_NAME</h1>
     <div class="recording">
+      <audio controls preload="metadata">
+        <source src="$MEDIA_SOURCE" type="$MEDIA_TYPE">
+        <a href="$MEDIA_SOURCE">Open the recording</a>
+      </audio>
       <img
         class="recording-icon"
         src="$BRAND_ICON"
@@ -108,14 +263,9 @@
         height="128"
         aria-hidden="true"
       >
-      <audio controls preload="metadata">
-        <source src="$MEDIA_SOURCE" type="$MEDIA_TYPE">
-        <a href="$MEDIA_SOURCE">Open the recording</a>
-      </audio>
     </div>
-    <section aria-labelledby="response-heading">
-      <h2 id="response-heading">Response</h2>
-      <pre>$RESPONSE_TEXT</pre>
+    <section>
+      <div class="response">$RESPONSE_TEXT</div>
     </section>
   </main>
 </body>

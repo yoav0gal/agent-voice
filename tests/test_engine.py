@@ -92,3 +92,23 @@ def test_descriptor_separates_model_identity_from_variant():
     assert descriptor.selection.variant == "fp16"
     assert descriptor.display_name == "Kokoro-82M"
     assert descriptor.runtime == "kokoro-onnx"
+
+
+def test_voice_catalog_groups_voices_under_supported_language_tags(monkeypatch):
+    model, _ = fake_model(monkeypatch)
+
+    catalog = model.voice_catalog()
+
+    assert catalog.languages[0].tag == "en-us"
+    assert catalog.languages[0].voices == (NamedVoice("af_heart"),)
+    assert [language.tag for language in catalog.languages] == [
+        "en-us",
+        "en-gb",
+        "ja",
+        "cmn",
+        "es",
+        "fr-fr",
+        "hi",
+        "it",
+        "pt-br",
+    ]

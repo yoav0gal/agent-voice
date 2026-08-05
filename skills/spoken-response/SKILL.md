@@ -22,28 +22,27 @@ Choose the mode from the user's request:
 1. Select the response:
    - For `Single` and `Thread`, finalize the current response.
    - For `Previous`, use the most recent assistant response.
-2. Set `TEXT` to the selected response's semantic twin: preserve meaning,
-   detail, and order while translating formatting into natural speech.
+2. Set `RESPONSE` to the selected response's Markdown.
+3. Set `TEXT` to its semantic twin: preserve meaning, detail, and order while
+   translating formatting into natural speech.
    - For tables, state the headers once and read each row as labeled values.
    - For long code, explain it naturally and refer to the written response for
      exact syntax.
-3. Set `LABEL` to `SR`. When a thread title is already available, use
+4. Set `LABEL` to `SR`. When a thread title is already available, use
    `<title> - SR`.
-4. Create the recording with the configured voice, speed, and format. For a
-   short response:
+5. Create the recording with the configured voice, speed, and format:
 
    ```sh
-   printf '%s' "$TEXT" |
-     agent-voice speak --label "$LABEL"
+   agent-voice speak "$TEXT" --markdown "$RESPONSE" --label "$LABEL"
    ```
 
-   For a long response, use a file:
+   For long responses, use files:
 
    ```sh
-   agent-voice speak --label "$LABEL" < "$TEXT_FILE"
+   agent-voice speak --label "$LABEL" --response-file "$RESPONSE_FILE" < "$TEXT_FILE"
    ```
 
-5. Place the audio above the written response or `Previous` confirmation using
+6. Place the audio above the written response or `Previous` confirmation using
    one delivery mode:
    - If the current surface supports an audio player, render the returned
      `path`.

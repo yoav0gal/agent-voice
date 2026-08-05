@@ -9,7 +9,14 @@ from types import SimpleNamespace
 import pytest
 
 from agent_voice import __version__, cli
-from agent_voice.model import ModelSelection, PreparedArtifact, SetupReceipt
+from agent_voice.model import (
+    LanguageCatalog,
+    ModelSelection,
+    NamedVoice,
+    PreparedArtifact,
+    SetupReceipt,
+    VoiceCatalog,
+)
 from agent_voice.speaking import SpeakRequest
 from agent_voice.viewer import Viewer
 
@@ -80,7 +87,17 @@ def test_serve_accepts_the_highest_valid_port():
 @pytest.mark.parametrize(
     ("command", "public_options"),
     [
-        ("speak", ("--output", "--format", "--play", "--service")),
+        (
+            "speak",
+            (
+                "--markdown",
+                "--response-file",
+                "--output",
+                "--format",
+                "--play",
+                "--service",
+            ),
+        ),
         ("voices", ("--json", "--model-id", "--variant")),
         ("doctor", ("--service-url", "--json")),
         ("serve", ("--host", "--port", "--idle-timeout")),
@@ -178,6 +195,37 @@ def test_models_lists_registered_adapters_as_json(capsys):
     }
 
 
+def test_voices_lists_language_tags_and_keeps_flat_json_voices(monkeypatch, capsys):
+    heart = NamedVoice("af_heart")
+    emma = NamedVoice("bf_emma")
+    catalog = VoiceCatalog(
+        named=(heart, emma),
+        default=heart,
+        accepts_reference_audio=False,
+        languages=(
+            LanguageCatalog("American English", "en-us", (heart,)),
+            LanguageCatalog("British English", "en-gb", (emma,)),
+        ),
+    )
+    monkeypatch.setattr(
+        cli, "_model", lambda _args: SimpleNamespace(voice_catalog=lambda: catalog)
+    )
+
+    cli.main(["voices"])
+    assert capsys.readouterr().out == (
+        "American English (en-us)\n  af_heart\n\nBritish English (en-gb)\n  bf_emma\n"
+    )
+
+    cli.main(["voices", "--json"])
+    assert json.loads(capsys.readouterr().out) == {
+        "voices": ["af_heart", "bf_emma"],
+        "languages": [
+            {"name": "American English", "tag": "en-us", "voices": ["af_heart"]},
+            {"name": "British English", "tag": "en-gb", "voices": ["bf_emma"]},
+        ],
+    }
+
+
 def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, capsys):
     captured = []
     payload = {"path": str(tmp_path / "recording.wav"), "played": False}
@@ -193,11 +241,15 @@ def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, 
 
     monkeypatch.setattr(cli, "Speaker", FakeSpeaker)
     output = tmp_path / "recording.wav"
+    response_file = tmp_path / "response.md"
+    response_file.write_text("# Written response", encoding="utf-8")
 
     cli.main(
         [
             "speak",
             "Visible text.",
+            "--response-file",
+            str(response_file),
             "--output",
             str(output),
             "--label",
@@ -230,6 +282,7 @@ def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, 
         SpeakRequest(
             text="Visible text.",
             selection=ModelSelection("kokoro", "fp16"),
+            response_markdown="# Written response",
             output=output,
             label="ignored",
             output_dir=tmp_path / "managed",
@@ -266,6 +319,52 @@ def test_speak_reads_stdin_and_always_serializes_json(monkeypatch, capsys):
     assert captured[0].text == "Text from stdin."
     assert captured[0].service == "off"
     assert json.loads(capsys.readouterr().out) == {"receipt": True}
+
+
+@pytest.mark.parametrize("positional", (True, False))
+def test_speak_accepts_inline_markdown_with_text_or_stdin(
+    positional, monkeypatch, capsys
+):
+    captured = []
+    text = "Update. Built successfully with uv."
+    markdown = (
+        "# Update\n\nBuilt **successfully** with [`uv`](https://docs.astral.sh/uv/)."
+    )
+
+    class Receipt:
+        def to_dict(self):
+            return {"receipt": True}
+
+    class FakeSpeaker:
+        def speak(self, request):
+            captured.append(request)
+            return Receipt()
+
+    monkeypatch.setattr(cli, "Speaker", FakeSpeaker)
+    if not positional:
+        monkeypatch.setattr(cli.sys, "stdin", io.StringIO(text))
+
+    cli.main(["speak", *([text] if positional else []), "--markdown", markdown])
+
+    assert captured[0].text == text
+    assert captured[0].response_markdown == markdown
+    assert json.loads(capsys.readouterr().out) == {"receipt": True}
+
+
+def test_speak_rejects_inline_markdown_with_response_file():
+    with pytest.raises(SystemExit) as exit_info:
+        cli.build_parser().parse_args(
+            [
+                "speak",
+                "Narration",
+                "--markdown",
+                "# Response",
+                "--response-file",
+                "response.md",
+            ]
+        )
+
+    assert exit_info.value.code == 2
 
 
 def test_speak_json_flag_is_not_available():

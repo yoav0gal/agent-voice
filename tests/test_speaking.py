@@ -498,6 +498,21 @@ def test_delivery_receives_the_planned_recording_root(tmp_path):
     assert receipt.delivery.browser_url is not None
 
 
+def test_delivery_prefers_the_written_response(tmp_path):
+    calls = []
+
+    make_speaker(tmp_path, delivery=delivery_success(calls)).speak(
+        SpeakRequest(
+            "Spoken narration.",
+            SELECTION,
+            response_markdown="# Written response",
+            service="off",
+        )
+    )
+
+    assert calls[0][1] == "# Written response"
+
+
 def test_delivery_failure_facts_are_typed_serialized_and_reported(tmp_path):
     notices = []
 

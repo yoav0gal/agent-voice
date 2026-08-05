@@ -50,6 +50,7 @@ class SpeakRequest:
     service: str | None = None
     service_timeout_minutes: float | None = None
     service_url: str = DEFAULT_SERVICE_URL
+    response_markdown: str | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ class _OutputPlan:
 @dataclass(frozen=True)
 class _ResolvedSpeakRequest:
     text: str
+    response_markdown: str
     selection: ModelSelection
     output: _OutputPlan
     voice: str
@@ -224,7 +226,7 @@ class Speaker:
             self._playback(recording.path)
         delivery = self._delivery(
             recording.path,
-            resolved.text,
+            resolved.response_markdown,
             audio_format=recording.format,
             recordings_dir=resolved.output.recording_root,
         )
@@ -246,6 +248,11 @@ class Speaker:
         service, timeout = _resolve_service_policy(request, defaults)
         return _ResolvedSpeakRequest(
             text=request.text,
+            response_markdown=(
+                request.text
+                if request.response_markdown is None
+                else request.response_markdown
+            ),
             selection=request.selection,
             output=self._plan_output(request, defaults),
             voice=request.voice if request.voice is not None else defaults.voice,

@@ -98,10 +98,18 @@ class ModelDescriptor:
 
 
 @dataclass(frozen=True)
+class LanguageCatalog:
+    name: str
+    tag: str
+    voices: tuple[NamedVoice, ...]
+
+
+@dataclass(frozen=True)
 class VoiceCatalog:
     named: tuple[NamedVoice, ...]
     default: VoiceSelection
     accepts_reference_audio: bool
+    languages: tuple[LanguageCatalog, ...] = ()
 
 
 @dataclass(frozen=True)

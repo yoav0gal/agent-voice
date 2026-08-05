@@ -23,7 +23,7 @@ from .config import (
     reset_defaults,
     update_defaults,
 )
-from .model import ModelSelection, SpeechModel
+from .model import ModelSelection, SpeechModel, VoiceCatalog
 from .paths import resolved_recording_dir
 from .registry import MODEL_REGISTRY
 from .speaking import SpeakRequest, Speaker
@@ -64,6 +64,16 @@ def build_parser() -> argparse.ArgumentParser:
         description="Create a local audio recording from positional text or stdin.",
     )
     speak.add_argument("text", nargs="?", help="text to read; omit to read stdin")
+    response = speak.add_mutually_exclusive_group()
+    response.add_argument(
+        "--markdown",
+        help="Markdown response to show in the browser viewer",
+    )
+    response.add_argument(
+        "--response-file",
+        type=Path,
+        help="Markdown response to show in the browser viewer",
+    )
     speak.add_argument(
         "-o",
         "--output",
@@ -121,8 +131,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     voices = subparsers.add_parser(
         "voices",
-        help="list voices (downloads model if missing)",
-        description="List voices; download the selected model if it is missing.",
+        help="list supported languages and voices",
+        description="List supported language tags and voices; download the model if missing.",
+        epilog='Select one with: agent-voice speak --lang TAG --voice VOICE "Text"',
     )
     voices.add_argument("--json", action="store_true", help="print one JSON result")
     _add_model_arguments(voices)
@@ -253,8 +264,11 @@ def main(argv: list[str] | None = None) -> None:
             _speak(args)
         elif args.command == "voices":
             catalog = _model(args).voice_catalog()
-            voices = [voice.name for voice in catalog.named]
-            print(json.dumps({"voices": voices}) if args.json else "\n".join(voices))
+            print(
+                json.dumps(_voice_catalog_payload(catalog))
+                if args.json
+                else _format_voice_catalog(catalog)
+            )
         elif args.command == "models":
             _models(args)
         elif args.command == "config":
@@ -282,6 +296,30 @@ def main(argv: list[str] | None = None) -> None:
     except (ValueError, RuntimeError, FileNotFoundError) as error:
         print(f"Error: {error}", file=sys.stderr)
         raise SystemExit(2) from error
+
+
+def _voice_catalog_payload(catalog: VoiceCatalog) -> dict[str, object]:
+    return {
+        "voices": [voice.name for voice in catalog.named],
+        "languages": [
+            {
+                "name": language.name,
+                "tag": language.tag,
+                "voices": [voice.name for voice in language.voices],
+            }
+            for language in catalog.languages
+        ],
+    }
+
+
+def _format_voice_catalog(catalog: VoiceCatalog) -> str:
+    if not catalog.languages:
+        return "\n".join(voice.name for voice in catalog.named)
+    return "\n\n".join(
+        f"{language.name} ({language.tag})\n"
+        + "\n".join(f"  {voice.name}" for voice in language.voices)
+        for language in catalog.languages
+    )
 
 
 def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
@@ -350,10 +388,16 @@ def _models(args: argparse.Namespace) -> None:
 
 def _speak(args: argparse.Namespace) -> None:
     text = args.text if args.text is not None else sys.stdin.read()
+    response_markdown = (
+        _read_response_file(args.response_file)
+        if args.response_file is not None
+        else args.markdown
+    )
     receipt = Speaker().speak(
         SpeakRequest(
             text=text,
             selection=_model_selection(args),
+            response_markdown=response_markdown,
             output=args.output,
             label=args.label,
             output_dir=args.output_dir,
@@ -368,6 +412,15 @@ def _speak(args: argparse.Namespace) -> None:
         )
     )
     print(json.dumps(receipt.to_dict()))
+
+
+def _read_response_file(path: Path) -> str:
+    try:
+        return path.expanduser().read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"Could not read response file: {error}") from error
 
 
 def _config(args: argparse.Namespace) -> None:

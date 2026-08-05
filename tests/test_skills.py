@@ -13,8 +13,8 @@ def test_create_speech_recording_skill_matches_cli_and_delivery_contract():
     )
 
     assert "name: create-speech-recording" in skill
-    assert 'agent-voice speak "Text to record"' in skill
-    assert 'agent-voice speak --label "$LABEL" < "$TEXT_FILE"' in skill
+    assert 'agent-voice speak "$TEXT" --markdown "$RESPONSE"' in skill
+    assert '--response-file "$RESPONSE_FILE" < "$TEXT_FILE"' in skill
     assert "speak --json" not in skill
     assert "delivery.fallback_markdown" not in skill
     assert "references/recording-delivery.md" in skill
@@ -39,8 +39,8 @@ def test_spoken_response_skill_matches_thread_modes_and_delivery_contract():
 
     assert "name: spoken-response" in skill
     assert "spoken semantic twin" in skill
-    assert 'agent-voice speak --label "$LABEL" < "$TEXT_FILE"' in skill
-    assert "$FINAL_RESPONSE" not in skill
+    assert 'agent-voice speak "$TEXT" --markdown "$RESPONSE"' in skill
+    assert '--response-file "$RESPONSE_FILE" < "$TEXT_FILE"' in skill
     assert "`Thread`" in skill
     assert "delivery.fallback_markdown" not in skill
     assert "references/recording-delivery.md" in skill
@@ -89,17 +89,3 @@ def test_fallback_references_render_only_structured_receipt_values():
     assert 'agent-voice play "/recordings/daily-update.mp3"' in local
     assert "[web player]" not in local
     assert "[web audio]" not in local
-
-
-def test_readme_uses_the_published_skill_install_commands():
-    readme = (PROJECT / "README.md").read_text(encoding="utf-8")
-
-    assert (
-        "npx skills add yoav0gal/agent-voice --skill create-speech-recording "
-        "--global --agent codex --yes"
-    ) in readme
-    assert (
-        "npx skills add yoav0gal/agent-voice --skill spoken-response "
-        "--global --agent codex --yes"
-    ) in readme
-    assert "skills/read-aloud" not in readme

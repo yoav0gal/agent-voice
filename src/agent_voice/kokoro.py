@@ -19,6 +19,7 @@ from numpy.typing import NDArray
 from .audio import change_tempo
 from .config import DEFAULT_VOICE, MAX_SPEED, MIN_SPEED
 from .model import (
+    LanguageCatalog,
     ModelCapability,
     ModelCheck,
     ModelDescriptor,
@@ -66,6 +67,17 @@ _VOICES_ASSET = (
     "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
 )
 KOKORO_VARIANTS = tuple(_MODEL_ASSETS)
+KOKORO_LANGUAGES = (
+    ("American English", "en-us", "a"),
+    ("British English", "en-gb", "b"),
+    ("Japanese", "ja", "j"),
+    ("Mandarin Chinese", "cmn", "z"),
+    ("Spanish", "es", "e"),
+    ("French", "fr-fr", "f"),
+    ("Hindi", "hi", "h"),
+    ("Italian", "it", "i"),
+    ("Brazilian Portuguese", "pt-br", "p"),
+)
 
 Asset = tuple[str, int, str]
 
@@ -173,6 +185,14 @@ class KokoroAdapter:
             named=voices,
             default=NamedVoice(DEFAULT_VOICE),
             accepts_reference_audio=False,
+            languages=tuple(
+                LanguageCatalog(
+                    name,
+                    tag,
+                    tuple(voice for voice in voices if voice.name.startswith(prefix)),
+                )
+                for name, tag, prefix in KOKORO_LANGUAGES
+            ),
         )
 
     def synthesize(self, request: SynthesisRequest) -> Speech:
