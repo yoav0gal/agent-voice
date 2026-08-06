@@ -23,8 +23,10 @@ from .paths import project_root, recording_dir
 
 _TRANSCRIPT_DIRECTORY = ".agent-voice-viewer"
 _PLAYER_DIRECTORY = "players"
+_RECORDING_RETENTION_SECONDS = (4 * 24 + 18) * 60 * 60
 _STARTUP_TIMEOUT_SECONDS = 15.0
 _STARTUP_HEALTH_TIMEOUT_SECONDS = 1.0
+VIEWER_PROTOCOL = 3
 
 
 @dataclass(frozen=True)
@@ -59,7 +61,7 @@ def ensure_viewer(recordings_dir: Path | None = None) -> Viewer:
         current = _running(state)
         if current and current.recordings_dir == root:
             return current
-        if current:
+        if current or _running(state, require_protocol=False):
             _stop(state)
 
         state_path = project_root() / "viewer.json"
@@ -116,7 +118,7 @@ def ensure_viewer(recordings_dir: Path | None = None) -> Viewer:
 
 def stop_viewer() -> Viewer:
     state = _state()
-    current = _running(state)
+    current = _running(state, require_protocol=False)
     if not current:
         (project_root() / "viewer.json").unlink(missing_ok=True)
         return Viewer(_root(state))
@@ -168,10 +170,21 @@ def publish_recording(
 
 
 def publish_transcript(recording: Path, text: str) -> Path:
+    return _write_text(transcript_path(recording), text)
+
+
+def publish_source(recording: Path, text: str) -> Path:
+    return _write_text(source_path(recording), text)
+
+
+def publish_language(recording: Path, language: str) -> Path:
+    return _write_text(language_path(recording), language)
+
+
+def _write_text(destination: Path, text: str) -> Path:
     if not isinstance(text, str):
         raise ValueError("Recording text must be a string")
 
-    destination = transcript_path(recording)
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     handle, temporary_name = tempfile.mkstemp(dir=destination.parent)
     temporary = Path(temporary_name)
@@ -224,6 +237,35 @@ def transcript_path(recording: Path) -> Path:
     return path.parent / _TRANSCRIPT_DIRECTORY / f"{digest}.txt"
 
 
+def source_path(recording: Path) -> Path:
+    path = recording.expanduser().resolve()
+    return path.with_name(f"{path.name}.txt")
+
+
+def language_path(recording: Path) -> Path:
+    return transcript_path(recording).with_suffix(".lang")
+
+
+def delete_expired_recordings(recordings: Path, *, now: float | None = None) -> None:
+    cutoff = (time.time() if now is None else now) - _RECORDING_RETENTION_SECONDS
+    try:
+        # ponytail: a direct top-level scan is enough for the managed folder.
+        for path in recordings.iterdir():
+            try:
+                if (
+                    path.suffix.lower().lstrip(".") in CONTENT_TYPES
+                    and source_path(path).is_file()
+                    and transcript_path(path).is_file()
+                    and language_path(path).is_file()
+                    and path.stat().st_mtime <= cutoff
+                ):
+                    path.unlink()
+            except OSError:
+                continue
+    except OSError:
+        return
+
+
 def player_mapping_path(recordings: Path, player_name: str) -> Path:
     return recordings / _TRANSCRIPT_DIRECTORY / _PLAYER_DIRECTORY / f"{player_name}.txt"
 
@@ -254,6 +296,7 @@ def _running(
     state: dict[str, object],
     *,
     timeout: float = 0.25,
+    require_protocol: bool = True,
 ) -> Viewer | None:
     try:
         port, pid = int(state["port"]), int(state["pid"])
@@ -264,7 +307,11 @@ def _running(
             health = json.loads(response.read())
     except (KeyError, ValueError, OSError, urllib.error.URLError, json.JSONDecodeError):
         return None
-    if health.get("service") != "agent-voice-viewer" or health.get("pid") != pid:
+    if (
+        health.get("service") != "agent-voice-viewer"
+        or health.get("pid") != pid
+        or (require_protocol and health.get("protocol") != VIEWER_PROTOCOL)
+    ):
         return None
     return Viewer(root, port, pid)
 
@@ -273,7 +320,7 @@ def _stop(state: dict[str, object]) -> None:
     pid = int(state["pid"])
     os.kill(pid, signal.SIGTERM)
     for _ in range(100):
-        if not _running(state):
+        if not _running(state, require_protocol=False):
             (project_root() / "viewer.json").unlink(missing_ok=True)
             return
         time.sleep(0.05)

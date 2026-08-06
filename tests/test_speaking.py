@@ -48,9 +48,13 @@ class FakeGenerator:
 
 
 def delivery_success(calls: list | None = None):
-    def prepare(recording, text, *, audio_format, recordings_dir):
+    def prepare(
+        recording, text, *, source_text, language, audio_format, recordings_dir
+    ):
         if calls is not None:
-            calls.append((recording, text, audio_format, recordings_dir))
+            calls.append(
+                (recording, text, source_text, language, audio_format, recordings_dir)
+            )
         resolved = recording.resolve()
         return Delivery(
             browser_url="http://127.0.0.1:49123/player/recording.html",
@@ -245,7 +249,7 @@ def test_environment_recording_root_overrides_config(tmp_path, monkeypatch):
     ).speak(SpeakRequest("Visible text.", SELECTION))
 
     assert receipt.recording.path.parent == environment
-    assert calls[0][3] == environment
+    assert calls[0][5] == environment
     assert not configured.exists()
 
 
@@ -286,7 +290,7 @@ def test_live_config_cli_and_environment_precedence(tmp_path, monkeypatch):
     assert receipt.recording.format == "wav"
     assert receipt.recording.voice == "af_nova"
     assert receipt.recording.speed == 1.15
-    assert calls[0][3] == environment
+    assert calls[0][5] == environment
 
 
 def test_exact_output_takes_precedence_and_extension_selects_format(tmp_path):
@@ -494,7 +498,9 @@ def test_delivery_receives_the_planned_recording_root(tmp_path):
         )
     )
 
-    assert calls == [(output, "Visible text.", "mp3", recording_root)]
+    assert calls == [
+        (output, "Visible text.", "Visible text.", "en-us", "mp3", recording_root)
+    ]
     assert receipt.delivery.browser_url is not None
 
 
@@ -506,17 +512,22 @@ def test_delivery_prefers_the_written_response(tmp_path):
             "Spoken narration.",
             SELECTION,
             response_markdown="# Written response",
+            language="he-il",
             service="off",
         )
     )
 
     assert calls[0][1] == "# Written response"
+    assert calls[0][2] == "Spoken narration."
+    assert calls[0][3] == "he-il"
 
 
 def test_delivery_failure_facts_are_typed_serialized_and_reported(tmp_path):
     notices = []
 
-    def fallback(recording, text, *, audio_format, recordings_dir):
+    def fallback(
+        recording, text, *, source_text, language, audio_format, recordings_dir
+    ):
         return Delivery(warning="viewer unavailable")
 
     receipt = make_speaker(

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Spoken Response Desktop"
+  short_description: "Create spoken responses with desktop players"
+  default_prompt: "Use $spoken-response-desktop for this response."
+
+policy:
+  allow_implicit_invocation: false

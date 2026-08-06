@@ -115,6 +115,8 @@ class _DeliveryPreparer(Protocol):
         recording: Path,
         text: str,
         *,
+        source_text: str,
+        language: str,
         audio_format: str,
         recordings_dir: Path,
     ) -> Delivery: ...
@@ -227,6 +229,8 @@ class Speaker:
         delivery = self._delivery(
             recording.path,
             resolved.response_markdown,
+            source_text=resolved.text,
+            language=resolved.language,
             audio_format=recording.format,
             recordings_dir=resolved.output.recording_root,
         )

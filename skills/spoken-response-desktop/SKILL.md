@@ -1,9 +1,9 @@
 ---
-name: spoken-response
-description: Create the spoken semantic twin of an assistant response with Agent Voice. Use when the user requests a spoken response, the previous response as audio, or spoken responses for a thread.
+name: spoken-response-desktop
+description: Create and embed the spoken semantic twin of a response in Codex Desktop or OpenCode Desktop.
 ---
 
-# Spoken Response
+# Spoken Response Desktop
 
 A spoken response is the audio semantic twin of an assistant response.
 
@@ -44,8 +44,10 @@ Choose the mode from the user's request:
    agent-voice speak --label "$LABEL" --response-file "$RESPONSE_AS_MARKDOWN_FILE" < "$RESPONSE_AS_TEXT_FILE"
    ```
 
-6. Place the audio above the written response or `Previous` confirmation using
-   [default.md](references/delivery/default.md).
+6. Place the audio above the written response or `Previous` confirmation. Use
+   the first matching delivery reference:
+   - Codex Desktop: [codex-desktop.md](references/delivery/codex-desktop.md)
+   - OpenCode Desktop: [opencode-desktop.md](references/delivery/opencode-desktop.md)
 
 For speaker playback, add `--play` and complete after the result reports
 `played: true`. On synthesis failure, send the written response with a brief

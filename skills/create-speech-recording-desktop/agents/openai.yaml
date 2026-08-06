@@ -1,0 +1,7 @@
+interface:
+  display_name: "Create Desktop Speech Recording"
+  short_description: "Create desktop recordings and audio players"
+  default_prompt: "Use $create-speech-recording-desktop to create and embed a speech recording."
+
+policy:
+  allow_implicit_invocation: false

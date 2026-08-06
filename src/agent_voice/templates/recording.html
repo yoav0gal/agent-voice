@@ -60,19 +60,9 @@
       margin: 0 auto;
     }
 
-    .brand {
-      margin-bottom: 0.75rem;
-    }
-
-    .brand-logo {
-      display: block;
-      width: min(100%, 15rem);
-      height: auto;
-    }
-
     h1 {
       margin: 0 0 1rem;
-      font-size: clamp(1.5rem, 4vw, 2rem);
+      font-size: clamp(1.25rem, 3vw, 1.5rem);
       overflow-wrap: anywhere;
     }
 
@@ -91,8 +81,8 @@
 
     .recording-icon {
       flex: 0 0 auto;
-      width: 2rem;
-      height: 2rem;
+      width: 4rem;
+      height: 4rem;
       object-fit: contain;
     }
 
@@ -237,18 +227,6 @@
 </head>
 <body>
   <main>
-    <header class="brand">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="$BRAND_LOGO_DARK">
-        <img
-          class="brand-logo"
-          src="$BRAND_LOGO"
-          alt="Agent Voice"
-          width="480"
-          height="93"
-        >
-      </picture>
-    </header>
     <h1>$RECORDING_NAME</h1>
     <div class="recording">
       <audio controls preload="metadata">

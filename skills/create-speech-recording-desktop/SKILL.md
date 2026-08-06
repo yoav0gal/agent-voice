@@ -1,9 +1,9 @@
 ---
-name: create-speech-recording
-description: Turn text into speech with Agent Voice. Use for creating audio recordings and speaking text aloud.
+name: create-speech-recording-desktop
+description: Create and embed a speech recording in Codex Desktop or OpenCode Desktop.
 ---
 
-# Create Speech Recording
+# Create Speech Recording Desktop
 
 Agent Voice works best in English. For another supported language, choose a
 matching voice with `agent-voice voices` and pass `--voice` and `--lang`.
@@ -40,7 +40,10 @@ Use the returned `path` to deliver the recording. For speaker playback, add
 
 ## Deliver
 
-Use [default.md](references/delivery/default.md).
+Use the first matching delivery reference:
+
+- Codex Desktop: [codex-desktop.md](references/delivery/codex-desktop.md)
+- OpenCode Desktop: [opencode-desktop.md](references/delivery/opencode-desktop.md)
 
 ## Setup
 

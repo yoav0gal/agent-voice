@@ -6,6 +6,8 @@ import errno
 import html
 import json
 import os
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
@@ -20,11 +22,23 @@ from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
 
 from . import __version__
+from .audio import write_audio
+from .config import load_defaults
 from .media import CONTENT_TYPES
-from .viewer import player_mapping_path, transcript_path
+from .model import NamedVoice, SynthesisRequest
+from .registry import MODEL_REGISTRY
+from .viewer import (
+    delete_expired_recordings,
+    language_path,
+    player_mapping_path,
+    source_path,
+    transcript_path,
+    VIEWER_PROTOCOL,
+)
 
 
 DEFAULT_VIEWER_PORT = 8779
+_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
 
 
 def _syntax_css(style: str) -> str:
@@ -62,6 +76,14 @@ class Server(ThreadingHTTPServer):
     def __init__(self, recordings: Path, port: int = 0) -> None:
         super().__init__(("127.0.0.1", port), Handler)
         self.recordings = recordings.resolve()
+        self.regeneration_lock = threading.Lock()
+        self.next_cleanup = time.monotonic()
+
+    def service_actions(self) -> None:
+        now = time.monotonic()
+        if now >= self.next_cleanup:
+            delete_expired_recordings(self.recordings)
+            self.next_cleanup = now + _CLEANUP_INTERVAL_SECONDS
 
     def server_bind(self) -> None:
         # HTTPServer.server_bind resolves the bind address with getfqdn().
@@ -104,6 +126,7 @@ class Handler(BaseHTTPRequestHandler):
                         "service": "agent-voice-viewer",
                         "pid": os.getpid(),
                         "port": server.server_port,
+                        "protocol": VIEWER_PROTOCOL,
                     }
                 ).encode(),
                 "application/json",
@@ -120,21 +143,31 @@ class Handler(BaseHTTPRequestHandler):
             None,
         )
         encoded = url.path.removeprefix(prefix or "")
-        recording = (
-            self._player_recording(encoded, server)
-            if prefix == "/player/"
-            else self._recording(encoded, server)
-        )
+        try:
+            recording = (
+                self._player_recording(encoded, server)
+                if prefix == "/player/"
+                else self._recording(encoded, server)
+            )
+        except Exception:
+            self.send_error(503, "Recording regeneration failed")
+            return
         if prefix is None or recording is None:
             self.send_error(404)
         elif prefix == "/player/":
             self._send(_player(recording), "text/html; charset=utf-8", head)
         else:
-            self._send_file(
-                recording,
-                CONTENT_TYPES[recording.suffix.lower().lstrip(".")],
-                head,
-            )
+            content_type = CONTENT_TYPES[recording.suffix.lower().lstrip(".")]
+            if not self._send_file(recording, content_type, head):
+                try:
+                    recording = self._recording(encoded, server)
+                except Exception:
+                    self.send_error(503, "Recording regeneration failed")
+                    return
+                if recording is None or not self._send_file(
+                    recording, content_type, head
+                ):
+                    self.send_error(404)
 
     def _player_recording(self, encoded: str, server: Server) -> Path | None:
         try:
@@ -171,41 +204,60 @@ class Handler(BaseHTTPRequestHandler):
                 or name.rpartition(".")[2].lower() not in CONTENT_TYPES
             ):
                 return None
-            path = (server.recordings / name).resolve(strict=True)
+            path = (server.recordings / name).resolve()
         except (OSError, UnicodeError, ValueError):
             return None
-        return path if path.parent == server.recordings and path.is_file() else None
+        if path.parent != server.recordings:
+            return None
+        if not path.is_file():
+            with server.regeneration_lock:
+                if not path.is_file():
+                    if not all(
+                        metadata.is_file()
+                        for metadata in (
+                            source_path(path),
+                            transcript_path(path),
+                            language_path(path),
+                        )
+                    ):
+                        return None
+                    _regenerate_recording(path)
+        return path if path.is_file() else None
 
-    def _send_file(self, path: Path, content_type: str, head: bool) -> None:
-        size = path.stat().st_size
-        requested_range = self.headers.get("Range")
-        if requested_range is None:
-            self.send_response(200)
-            self._headers(size, content_type, accept_ranges=True)
-            start = 0
-            length = size
-        else:
-            try:
-                start, end = _byte_range(requested_range, size)
-            except ValueError:
-                self.send_response(416)
+    def _send_file(self, path: Path, content_type: str, head: bool) -> bool:
+        try:
+            source = path.open("rb")
+        except FileNotFoundError:
+            return False
+        with source:
+            size = os.fstat(source.fileno()).st_size
+            requested_range = self.headers.get("Range")
+            if requested_range is None:
+                self.send_response(200)
+                self._headers(size, content_type, accept_ranges=True)
+                start = 0
+                length = size
+            else:
+                try:
+                    start, end = _byte_range(requested_range, size)
+                except ValueError:
+                    self.send_response(416)
+                    self._headers(
+                        0,
+                        content_type,
+                        accept_ranges=True,
+                        content_range=f"bytes */{size}",
+                    )
+                    return True
+                length = end - start + 1
+                self.send_response(206)
                 self._headers(
-                    0,
+                    length,
                     content_type,
                     accept_ranges=True,
-                    content_range=f"bytes */{size}",
+                    content_range=f"bytes {start}-{end}/{size}",
                 )
-                return
-            length = end - start + 1
-            self.send_response(206)
-            self._headers(
-                length,
-                content_type,
-                accept_ranges=True,
-                content_range=f"bytes {start}-{end}/{size}",
-            )
-        if not head:
-            with path.open("rb") as source:
+            if not head:
                 source.seek(start)
                 remaining = length
                 while remaining:
@@ -214,6 +266,7 @@ class Handler(BaseHTTPRequestHandler):
                         break
                     self.wfile.write(chunk)
                     remaining -= len(chunk)
+        return True
 
     def _send(self, body: bytes, content_type: str, head: bool) -> None:
         self.send_response(200)
@@ -319,8 +372,6 @@ def _player(recording: Path) -> bytes:
     )
     return template.substitute(
         BRAND_ICON=_image_data_url("brand-icon.svg"),
-        BRAND_LOGO=_image_data_url("brand-logo.svg"),
-        BRAND_LOGO_DARK=_image_data_url("brand-logo.svg", dark_wordmark=True),
         PAGE_TITLE=html.escape(f"{name} · Agent Voice", quote=True),
         PYGMENTS_DARK=_PYGMENTS_DARK_CSS,
         PYGMENTS_LIGHT=_PYGMENTS_LIGHT_CSS,
@@ -331,10 +382,31 @@ def _player(recording: Path) -> bytes:
     ).encode()
 
 
-def _image_data_url(name: str, *, dark_wordmark: bool = False) -> str:
+def _regenerate_recording(recording: Path) -> None:
+    text = source_path(recording).read_text(encoding="utf-8")
+    language = language_path(recording).read_text(encoding="utf-8").strip()
+    if not language:
+        raise ValueError("Recording language is empty")
+    defaults = load_defaults()
+    model = MODEL_REGISTRY.create(MODEL_REGISTRY.select())
+    speech = model.synthesize(
+        SynthesisRequest(
+            text=text,
+            voice=NamedVoice(defaults.voice),
+            speed=defaults.speed,
+            language=language,
+        )
+    )
+    write_audio(
+        speech.samples,
+        speech.sample_rate,
+        recording,
+        recording.suffix.lower().lstrip("."),
+    )
+
+
+def _image_data_url(name: str) -> str:
     image = resources.files("agent_voice").joinpath("templates", name).read_bytes()
-    if dark_wordmark:
-        image = image.replace(b'fill="#1b1715"', b'fill="#f7f3eb"')
     encoded = base64.b64encode(image).decode("ascii")
     return f"data:image/svg+xml;base64,{encoded}"
 

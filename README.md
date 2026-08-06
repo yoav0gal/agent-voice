@@ -38,13 +38,21 @@ uv tool install agent-voice
 agent-voice setup
 ```
 
-Install the skills globally for your coding agent (recommended):
+Install the skills for your surface.
+
+For CLIs and portable Markdown delivery:
 
 ```sh
 npx skills add yoav0gal/agent-voice --skill create-speech-recording --global
 npx skills add yoav0gal/agent-voice --skill spoken-response --global
 ```
 
+For Codex Desktop or OpenCode Desktop players:
+
+```sh
+npx skills add yoav0gal/agent-voice --skill create-speech-recording-desktop --global
+npx skills add yoav0gal/agent-voice --skill spoken-response-desktop --global
+```
 
 Test it:
 
@@ -54,20 +62,21 @@ agent-voice speak "Hello from Agent Voice." --play
 
 ## Skills
 
-Agent Voice includes two example skills:
+Agent Voice includes two workflows, each with portable and desktop delivery:
 
 - **create-speech-recording** turns supplied text into audio. Use it when you
   want an agent to create a recording or read something aloud.
 - **spoken-response** creates an audio version of an agent's written response.
   Use it when you want to listen to a long answer instead of reading it.
+- Add **`-desktop`** to either name for an embedded Codex Desktop or OpenCode
+  Desktop player. Desktop skills are explicitly invoked in Codex.
 
 These skills are starting points, not fixed workflows. Copy them, edit them,
 and make them yours. You can change delivery wording, recording defaults,
 playback behavior, or when the agent should offer audio.
 
-Each skill owns its agent instructions and an editable
-`references/recording-delivery.md` template. The CLI returns structured facts;
-the skill decides how those facts are presented.
+Each skill owns its delivery references. The CLI returns structured facts; the
+installed skill decides how those facts are presented.
 
 ## CLI
 
@@ -95,11 +104,13 @@ agent-voice speak "The build is finished."
 # Agent output through stdin
 printf '%s' "$TEXT" | agent-voice speak --label build-summary
 
-# Spoken text and written Markdown in one command
-agent-voice speak "$TEXT" --markdown "$RESPONSE" --label response
+# Spoken response text and written response Markdown in one command
+agent-voice speak "$RESPONSE_AS_TEXT" \
+  --markdown "$RESPONSE_AS_MARKDOWN" --label response
 
-# Show the written response while playing a speech-friendly narration
-agent-voice speak --response-file response.md < narration.txt
+# Use separate files for a long spoken response and its written Markdown
+agent-voice speak --response-file "$RESPONSE_AS_MARKDOWN_FILE" \
+  < "$RESPONSE_AS_TEXT_FILE"
 
 # Choose the output and delivery
 agent-voice speak "Here is your summary." \
@@ -168,7 +179,11 @@ agent-voice viewer stop
 
 The lightweight viewer starts automatically when needed and serves only local
 recordings. It prefers `http://127.0.0.1:8779` and selects a free port if that
-port is unavailable.
+port is unavailable. Each managed recording keeps an editable `.txt` source
+beside it. At startup and every six hours, the viewer removes audio older than
+four days and 18 hours, keeping it below five days while the viewer runs. A
+missing recording is regenerated from its source with its original language
+and the current voice and speed when requested.
 
 > 🗒️ The viewer is a workaround for agent surfaces that do not support embedded
 audio. I expect native text-to-speech to become common across these platforms,

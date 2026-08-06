@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from agent_voice import delivery
-from agent_voice.viewer import Viewer
+from agent_voice.viewer import Viewer, language_path, source_path
 
 
 def _viewer(root: Path) -> Viewer:
@@ -20,6 +20,8 @@ def test_prepare_delivery_uses_http_player_audio_and_file_links(tmp_path, monkey
     result = delivery.prepare_delivery(
         recording,
         "Visible response text.",
+        source_text="Spoken narration.",
+        language="en-gb",
         recordings_dir=tmp_path,
     )
 
@@ -31,6 +33,8 @@ def test_prepare_delivery_uses_http_player_audio_and_file_links(tmp_path, monkey
     assert result.audio_url == (
         "http://127.0.0.1:49123/recordings/Daily%20update%20%26%20notes.mp3"
     )
+    assert source_path(recording).read_text() == "Spoken narration."
+    assert language_path(recording).read_text() == "en-gb"
     assert list(tmp_path.glob("*.html")) == []
 
 
@@ -54,8 +58,10 @@ def test_prepare_delivery_copies_external_output_and_stores_transcript(
     assert result.recording_path.read_bytes() == b"m4a-audio"
     assert {path.name for path in managed.iterdir()} == {
         "report.m4a",
+        "report.m4a.txt",
         ".agent-voice-viewer",
     }
+    assert source_path(output).read_text() == "Visible response text."
     assert result.audio_url.endswith("/recordings/report.m4a")
     assert output.read_bytes() == b"m4a-audio"
 
@@ -114,6 +120,7 @@ def test_viewer_failure_keeps_audio_and_uses_file_fallback(tmp_path, monkeypatch
     )
 
     assert recording.read_bytes() == b"audio"
+    assert source_path(recording).read_text() == "Visible response text."
     assert result.warning == (
         "Could not start recording viewer; using file fallback (not available)"
     )

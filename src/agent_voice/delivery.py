@@ -6,8 +6,10 @@ from pathlib import Path
 from .media import CONTENT_TYPES
 from .viewer import (
     ensure_viewer,
+    publish_language,
     publish_recording,
     publish_player,
+    publish_source,
     recording_urls,
 )
 
@@ -24,6 +26,8 @@ def prepare_delivery(
     recording: Path,
     text: str,
     *,
+    source_text: str | None = None,
+    language: str = "en-us",
     audio_format: str | None = None,
     recordings_dir: Path | None = None,
 ) -> Delivery:
@@ -40,7 +44,12 @@ def prepare_delivery(
 
     try:
         published = publish_recording(path, resolved_format, recordings_dir)
+        source = text if source_text is None else source_text
+        publish_source(path, source)
+        if published != path:
+            publish_source(published, source)
         player_name = publish_player(published, text)
+        publish_language(published, language)
         viewer = ensure_viewer(published.parent)
         browser_url, audio_url = recording_urls(viewer, published, player_name)
     except (OSError, RuntimeError) as error:

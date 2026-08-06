@@ -2,26 +2,35 @@ from __future__ import annotations
 
 import errno
 import json
+import os
 import socket
 import threading
+import time
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from agent_voice import viewer as viewer_module
+from agent_voice import viewer_server
 from agent_voice.viewer import (
+    VIEWER_PROTOCOL,
     Viewer,
+    delete_expired_recordings,
     ensure_viewer,
+    publish_language,
     publish_player,
     publish_recording,
+    publish_source,
     recording_urls,
+    source_path,
     stop_viewer,
     transcript_path,
 )
-from agent_voice import viewer_server
-from agent_voice.viewer_server import DEFAULT_VIEWER_PORT, Server, _image_data_url
+from agent_voice.viewer_server import DEFAULT_VIEWER_PORT, Handler, Server
 
 
 @contextmanager
@@ -47,9 +56,6 @@ def _running_viewer(recordings: Path):
     ],
 )
 def test_viewer_serves_supported_audio_and_dynamic_player(tmp_path, name, content_type):
-    assert _image_data_url("brand-logo.svg") != _image_data_url(
-        "brand-logo.svg", dark_wordmark=True
-    )
     recording = tmp_path / name
     recording.write_bytes(b"0123456789")
     player_name = publish_player(
@@ -77,11 +83,8 @@ def test_viewer_serves_supported_audio_and_dynamic_player(tmp_path, name, conten
             assert 'rel="icon"' in document
             assert 'type="image/svg+xml"' in document
             assert 'href="data:image/svg+xml;base64,' in document
-            assert 'class="brand-logo"' in document
             assert 'class="recording-icon"' in document
-            assert document.count('src="data:image/svg+xml;base64,') == 2
-            assert 'media="(prefers-color-scheme: dark)"' in document
-            assert 'srcset="data:image/svg+xml;base64,' in document
+            assert document.count('src="data:image/svg+xml;base64,') == 1
             assert ">Response</h2>" not in document
             assert document.index("<audio ") < document.index('class="recording-icon"')
             assert (
@@ -137,7 +140,6 @@ def test_player_urls_keep_audio_formats_distinct(tmp_path):
 
     assert mp3_url.endswith("/player/sample.html")
     assert wav_url.endswith("/player/sample-2.html")
-
     with _running_viewer(tmp_path) as (_, url):
         with urllib.request.urlopen(f"{url}/player/sample.html") as response:
             assert 'src="/recordings/sample.mp3"' in response.read().decode()
@@ -280,6 +282,28 @@ def test_viewer_binding_does_not_resolve_localhost(tmp_path, monkeypatch):
         assert server.server_port > 0
 
 
+def test_viewer_cleans_at_startup_and_every_six_hours(tmp_path, monkeypatch):
+    calls = []
+    now = [100.0]
+    monkeypatch.setattr(
+        viewer_server,
+        "delete_expired_recordings",
+        lambda recordings: calls.append(recordings),
+    )
+    monkeypatch.setattr(viewer_server.time, "monotonic", lambda: now[0])
+
+    with Server(tmp_path) as server:
+        assert calls == []
+        server.service_actions()
+        now[0] += 6 * 60 * 60 - 1
+        server.service_actions()
+        now[0] += 1
+        server.service_actions()
+        server.service_actions()
+
+    assert calls == [tmp_path.resolve(), tmp_path.resolve()]
+
+
 def test_viewer_falls_back_when_stable_port_is_busy(tmp_path, monkeypatch):
     ports = []
 
@@ -309,6 +333,167 @@ def test_publish_recording_copies_external_audio_without_html(tmp_path):
     assert list(managed.iterdir()) == [published]
 
 
+def test_expired_recordings_keep_sources_and_unmanaged_audio(tmp_path):
+    now = time.time()
+    delete_after = (4 * 24 + 18) * 60 * 60
+    expired = tmp_path / "expired.mp3"
+    fresh = tmp_path / "fresh.mp3"
+    unmanaged = tmp_path / "unmanaged.mp3"
+    unrelated_sidecar = tmp_path / "unrelated.mp3"
+    for recording in (expired, fresh, unmanaged, unrelated_sidecar):
+        recording.write_bytes(b"audio")
+    publish_source(expired, "Editable old text.")
+    publish_player(expired, "Visible old text.")
+    publish_language(expired, "en-us")
+    publish_source(fresh, "Editable fresh text.")
+    publish_player(fresh, "Visible fresh text.")
+    publish_language(fresh, "en-us")
+    publish_source(unrelated_sidecar, "Not Agent Voice metadata.")
+    os.utime(expired, (now - delete_after - 1,) * 2)
+    os.utime(fresh, (now - delete_after + 1,) * 2)
+    os.utime(unrelated_sidecar, (now - 6 * 24 * 60 * 60,) * 2)
+
+    delete_expired_recordings(tmp_path, now=now)
+
+    assert not expired.exists()
+    assert source_path(expired).read_text() == "Editable old text."
+    assert fresh.is_file()
+    assert unmanaged.is_file()
+    assert unrelated_sidecar.is_file()
+
+
+def test_viewer_regenerates_missing_audio_from_source(tmp_path, monkeypatch):
+    recording = tmp_path / "requested.mp3"
+    publish_source(recording, "Current editable text.")
+    publish_player(recording, "Visible response.")
+    publish_language(recording, "en-us")
+    regenerated = []
+
+    def regenerate(path):
+        regenerated.append(source_path(path).read_text())
+        path.write_bytes(b"regenerated")
+
+    monkeypatch.setattr(viewer_server, "_regenerate_recording", regenerate)
+
+    with _running_viewer(tmp_path) as (_, url):
+        with urllib.request.urlopen(f"{url}/recordings/requested.mp3") as response:
+            assert response.read() == b"regenerated"
+
+    assert regenerated == ["Current editable text."]
+
+
+def test_viewer_retries_when_cleanup_removes_audio_before_open(tmp_path, monkeypatch):
+    recording = tmp_path / "requested.mp3"
+    recording.write_bytes(b"expired")
+    publish_source(recording, "Current editable text.")
+    publish_player(recording, "Visible response.")
+    publish_language(recording, "en-us")
+    monkeypatch.setattr(
+        viewer_server,
+        "_regenerate_recording",
+        lambda path: path.write_bytes(b"regenerated"),
+    )
+    send_file = Handler._send_file
+    first = [True]
+
+    def remove_before_open(self, path, content_type, head):
+        if first[0]:
+            first[0] = False
+            path.unlink()
+        return send_file(self, path, content_type, head)
+
+    monkeypatch.setattr(Handler, "_send_file", remove_before_open)
+
+    with _running_viewer(tmp_path) as (_, url):
+        with urllib.request.urlopen(f"{url}/recordings/requested.mp3") as response:
+            assert response.read() == b"regenerated"
+
+
+def test_viewer_reports_regeneration_failure(tmp_path, monkeypatch):
+    recording = tmp_path / "requested.mp3"
+    publish_source(recording, "Current editable text.")
+    publish_player(recording, "Visible response.")
+    publish_language(recording, "en-us")
+    monkeypatch.setattr(
+        viewer_server,
+        "_regenerate_recording",
+        lambda _path: (_ for _ in ()).throw(RuntimeError("failed")),
+    )
+
+    with _running_viewer(tmp_path) as (_, url):
+        with pytest.raises(urllib.error.HTTPError) as failed:
+            urllib.request.urlopen(f"{url}/recordings/requested.mp3")
+
+    assert failed.value.code == 503
+
+
+def test_regeneration_uses_saved_language_and_current_voice(tmp_path, monkeypatch):
+    recording = tmp_path / "requested.mp3"
+    publish_source(recording, "שלום")
+    publish_language(recording, "he-il")
+    requests = []
+    writes = []
+
+    class Model:
+        def synthesize(self, request):
+            requests.append(request)
+            return SimpleNamespace(samples=[0.0], sample_rate=24_000)
+
+    class Registry:
+        def select(self):
+            return "current-model"
+
+        def create(self, selection):
+            assert selection == "current-model"
+            return Model()
+
+    monkeypatch.setattr(viewer_server, "MODEL_REGISTRY", Registry())
+    monkeypatch.setattr(
+        viewer_server,
+        "load_defaults",
+        lambda: SimpleNamespace(voice="bf_emma", speed=1.2),
+    )
+    monkeypatch.setattr(
+        viewer_server,
+        "write_audio",
+        lambda samples, rate, path, audio_format: writes.append(
+            (samples, rate, path, audio_format)
+        ),
+    )
+
+    viewer_server._regenerate_recording(recording)
+
+    assert requests[0].text == "שלום"
+    assert requests[0].language == "he-il"
+    assert requests[0].voice.name == "bf_emma"
+    assert requests[0].speed == 1.2
+    assert writes == [([0.0], 24_000, recording, "mp3")]
+
+
+def test_running_rejects_old_viewer_protocol(tmp_path, monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return json.dumps({"service": "agent-voice-viewer", "pid": 123}).encode()
+
+    monkeypatch.setattr(
+        viewer_module.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: Response(),
+    )
+    state = {"port": 8779, "pid": 123, "recordings_dir": str(tmp_path)}
+
+    assert viewer_module._running(state) is None
+    assert viewer_module._running(state, require_protocol=False) == Viewer(
+        tmp_path.resolve(), 8779, 123
+    )
+
+
 def test_dynamic_viewer_process_start_status_and_stop(tmp_path, monkeypatch):
     home = tmp_path / "home"
     recordings = tmp_path / "recordings"
@@ -324,6 +509,7 @@ def test_dynamic_viewer_process_start_status_and_stop(tmp_path, monkeypatch):
         with urllib.request.urlopen(f"{started.url}/health") as response:
             health = json.loads(response.read())
         assert health["service"] == "agent-voice-viewer"
+        assert health["protocol"] == VIEWER_PROTOCOL
     finally:
         stopped = stop_viewer()
 

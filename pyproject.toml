@@ -1,6 +1,6 @@
 [project]
 name = "agent-voice"
-version = "0.6.0"
+version = "0.7.0"
 description = "Local, free voice artifacts for AI agents"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
