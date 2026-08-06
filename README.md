@@ -167,7 +167,7 @@ agent-voice doctor --json
 pair with `agent-voice speak --lang TAG --voice VOICE "Text"`.
 
 Use `--json` with `voices`, `models`, `config`, or `doctor` when another tool or
-agent will consume the result. 
+agent will consume the result.
 
 ### Play and view recordings
 
@@ -180,10 +180,11 @@ agent-voice viewer stop
 The lightweight viewer starts automatically when needed and serves only local
 recordings. It prefers `http://127.0.0.1:8779` and selects a free port if that
 port is unavailable. Each managed recording keeps an editable `.txt` source
-beside it. At startup and every six hours, the viewer removes audio older than
-four days and 18 hours, keeping it below five days while the viewer runs. A
-missing recording is regenerated from its source with its original language
-and the current voice and speed when requested.
+beside it. At startup and every six hours, the viewer removes owned audio older
+than four days and 18 hours; files without Agent Voice source, transcript, and
+language metadata are left alone. Opening a player or audio URL regenerates
+missing audio from its source with the original language and current voice and
+speed.
 
 > 🗒️ The viewer is a workaround for agent surfaces that do not support embedded
 audio. I expect native text-to-speech to become common across these platforms,
@@ -204,8 +205,8 @@ curl http://127.0.0.1:8765/v1/audio/speech \
 The API binds to localhost. `speak` uses it when available and falls back to
 embedded inference.
 
+### Platform limitations
 
-### platform limitations
 Prebuilt dependencies support macOS arm64/x64, Linux x64, and Windows x64.
 Linux arm64 requires a C build toolchain for miniaudio. On Windows arm64, use
 x64 Python under emulation.

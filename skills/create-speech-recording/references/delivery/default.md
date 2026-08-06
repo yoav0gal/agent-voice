@@ -1,8 +1,14 @@
-If the current surface supports an audio player, render the returned `path`.
-Otherwise, replace the available receipt values in this template. Remove viewer
-links that do not have values. Send the result without the outer code fence.
+Use the exact block below whenever delivering a recording. Replace each
+placeholder with its receipt value. Include every link that has a receipt
+value. When a value is unavailable, remove the entire Markdown link, including
+its label. Join the remaining links with ` · ` so no empty labels or dangling
+separators appear.
+
+Keep both `---` separators and the blank lines, spacing, wording, and inner code
+fence exactly as shown. Send the block without the outer four-backtick fence.
 
 ````markdown
+
 ---
 
 Agent Voice recording
@@ -16,4 +22,5 @@ agent-voice play "$path"
 ```
 
 ---
+
 ````

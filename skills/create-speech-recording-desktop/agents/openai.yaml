@@ -1,5 +1,5 @@
 interface:
-  display_name: "Create Desktop Speech Recording"
+  display_name: "Create Speech Recording Desktop"
   short_description: "Create desktop recordings and audio players"
   default_prompt: "Use $create-speech-recording-desktop to create and embed a speech recording."
 
