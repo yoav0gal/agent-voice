@@ -1,4 +1,4 @@
-# Codex Desktop
+# Default Desktop Delivery
 
 Render the returned absolute `path` directly as native audio on its own line
 above the written response:

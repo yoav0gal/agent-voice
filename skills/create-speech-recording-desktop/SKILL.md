@@ -1,6 +1,6 @@
 ---
 name: create-speech-recording-desktop
-description: Create and embed a speech recording in Codex Desktop or OpenCode Desktop.
+description: Create and embed a speech recording in Codex Desktop, Antigravity, or OpenCode Desktop.
 ---
 
 # Create Speech Recording Desktop
@@ -42,8 +42,8 @@ Use the returned `path` to deliver the recording. For speaker playback, add
 
 Use the first matching delivery reference:
 
-- Codex Desktop: [codex-desktop.md](references/delivery/codex-desktop.md)
 - OpenCode Desktop: [opencode-desktop.md](references/delivery/opencode-desktop.md)
+- Default (Codex Desktop and Antigravity): [default.md](references/delivery/default.md)
 
 ## Setup
 
