@@ -38,21 +38,31 @@ uv tool install agent-voice
 agent-voice setup
 ```
 
-Install the skills for your surface.
+### Choose a delivery method
 
-For CLIs and portable Markdown delivery:
+For desktop applications, the recommended way is to use the `-desktop` skills.
+They embed a media player directly in the answer and currently support
+Antigravity, Codex, and OpenCode:
+
+```sh
+npx skills add yoav0gal/agent-voice --skill create-speech-recording-desktop --global
+npx skills add yoav0gal/agent-voice --skill spoken-response-desktop --global
+```
+
+For CLIs and portable Markdown delivery, install the normal skills:
 
 ```sh
 npx skills add yoav0gal/agent-voice --skill create-speech-recording --global
 npx skills add yoav0gal/agent-voice --skill spoken-response --global
 ```
 
-For Codex Desktop or OpenCode Desktop players:
+The normal skills deliver three links:
 
-```sh
-npx skills add yoav0gal/agent-voice --skill create-speech-recording-desktop --global
-npx skills add yoav0gal/agent-voice --skill spoken-response-desktop --global
-```
+- **web player** — the recommended option; open it in an application browser.
+  In coding-agent apps, this view includes the written answer too.
+- **media app** — opens the linked recording in your default media app.
+- **web audio** — opens the audio directly and should start playing
+  automatically.
 
 Test it:
 
@@ -62,18 +72,19 @@ agent-voice speak "Hello from Agent Voice." --play
 
 ## Skills
 
-Agent Voice includes two workflows, each with portable and desktop delivery:
+Agent Voice includes two skills:
 
 - **create-speech-recording** turns supplied text into audio. Use it when you
   want an agent to create a recording or read something aloud.
 - **spoken-response** creates an audio version of an agent's written response.
   Use it when you want to listen to a long answer instead of reading it.
-- Add **`-desktop`** to either name for an embedded Codex Desktop or OpenCode
-  Desktop player. Desktop skills are explicitly invoked in Codex.
 
-These skills are starting points, not fixed workflows. Copy them, edit them,
-and make them yours. You can change delivery wording, recording defaults,
-playback behavior, or when the agent should offer audio.
+Each skill also has a **`-desktop`** version that does the same job but
+delivers the recording through a player embedded in the desktop app.
+
+These skills are starting points. Copy them, edit them, and make them yours.
+You can change delivery wording, recording defaults, playback behavior, or
+when the agent should offer audio.
 
 Each skill owns its delivery references. The CLI returns structured facts; the
 installed skill decides how those facts are presented.

@@ -1,6 +1,6 @@
 ---
 name: spoken-response-desktop
-description: Create and embed the spoken semantic twin of a response in Codex Desktop, Antigravity, or OpenCode Desktop.
+description: Create and embed the spoken semantic twin of a response in Codex Desktop, Antigravity App, or OpenCode Desktop.
 ---
 
 # Spoken Response Desktop
@@ -31,7 +31,9 @@ Choose the mode from the user's request:
      exact syntax.
 4. Set `LABEL` to `SR`. When a thread title is already available, use
    `<title> - SR`.
-5. Create the recording with the configured voice, speed, and format:
+5. Create the recording with the configured voice, speed, and format. On
+   Antigravity App, follow the special
+   [recording and delivery instructions](references/delivery/antigravity.md).
 
    ```sh
    agent-voice speak "$RESPONSE_AS_TEXT" --markdown "$RESPONSE_AS_MARKDOWN" --label "$LABEL"
@@ -46,8 +48,9 @@ Choose the mode from the user's request:
 
 6. Place the audio above the written response or `Previous` confirmation. Use
    the first matching delivery reference:
+   - Antigravity App: [antigravity.md](references/delivery/antigravity.md)
    - OpenCode Desktop: [opencode-desktop.md](references/delivery/opencode-desktop.md)
-   - Other: [default.md](references/delivery/default.md)
+   - Other (Codex Desktop): [default.md](references/delivery/default.md)
 
 For speaker playback, add `--play` and complete after the result reports
 `played: true`. On synthesis failure, send the written response with a brief
