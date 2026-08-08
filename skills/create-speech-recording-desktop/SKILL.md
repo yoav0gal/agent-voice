@@ -13,6 +13,7 @@ matching voice with `agent-voice voices` and pass `--voice` and `--lang`.
 Set `RESPONSE_AS_MARKDOWN` to the original text or Markdown. Set
 `RESPONSE_AS_TEXT` to its spoken form. Never use `RESPONSE_AS_MARKDOWN` as the
 speech input.
+Use real line breaks in `RESPONSE_AS_MARKDOWN`, not escaped `\n` text.
 
 - For supplied text, preserve every word and punctuation mark in order while
   translating presentation syntax into speech.

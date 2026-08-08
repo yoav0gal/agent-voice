@@ -22,7 +22,8 @@ Choose the mode from the user's request:
 1. Select the response:
    - For `Single` and `Thread`, finalize the current response.
    - For `Previous`, use the most recent assistant response.
-2. Set `RESPONSE_AS_MARKDOWN` to the selected response's Markdown.
+2. Set `RESPONSE_AS_MARKDOWN` to the selected response's Markdown. Use real line
+   breaks, not escaped `\n` text.
 3. Set `RESPONSE_AS_TEXT` to its spoken semantic twin: preserve meaning, detail,
    and order while translating formatting into natural speech. Never use
    `RESPONSE_AS_MARKDOWN` as the speech input.
