@@ -17,7 +17,7 @@ CHECK_INTERVAL_SECONDS = 24 * 60 * 60
 
 
 def notify_if_update_available() -> None:
-    if not sys.stderr.isatty():
+    if sys.stderr is None or not sys.stderr.isatty():
         return
 
     now = time.time()

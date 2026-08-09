@@ -210,6 +210,7 @@ def _install_windows_handler() -> str:
         raise RuntimeError(
             f"Refusing to replace unrecognized handler: {handler_path()}"
         )
+    executable = _windows_handler_executable()
     values = {
         _WINDOWS_REGISTRY_PATH: {
             None: "URL:Agent Voice playback controls",
@@ -218,7 +219,7 @@ def _install_windows_handler() -> str:
         },
         rf"{_WINDOWS_REGISTRY_PATH}\DefaultIcon": {None: sys.executable},
         rf"{_WINDOWS_REGISTRY_PATH}\shell\open\command": {
-            None: f'"{sys.executable}" -m agent_voice control-url "%1"'
+            None: f'"{executable}" -m agent_voice control-url "%1"'
         },
     }
     for key_path, entries in values.items():
@@ -226,6 +227,11 @@ def _install_windows_handler() -> str:
             for name, value in entries.items():
                 winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
     return str(handler_path())
+
+
+def _windows_handler_executable() -> str:
+    windowed = Path(sys.executable).with_name("pythonw.exe")
+    return str(windowed) if windowed.is_file() else sys.executable
 
 
 def _uninstall_windows_handler() -> bool:

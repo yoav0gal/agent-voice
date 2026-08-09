@@ -343,7 +343,8 @@ def main(argv: list[str] | None = None) -> None:
         elif args.command == "control-url":
             _control_url(args)
     except (ValueError, RuntimeError, FileNotFoundError) as error:
-        print(f"Error: {error}", file=sys.stderr)
+        if sys.stderr is not None:
+            print(f"Error: {error}", file=sys.stderr)
         raise SystemExit(2) from error
 
 

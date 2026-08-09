@@ -278,6 +278,9 @@ class _FakeWinreg:
 
 def test_windows_handler_installs_updates_and_uninstalls(tmp_path, monkeypatch):
     executable = tmp_path / "Python with spaces" / "python.exe"
+    windowed = executable.with_name("pythonw.exe")
+    windowed.parent.mkdir(parents=True)
+    windowed.touch()
     registry = _FakeWinreg()
     monkeypatch.setattr(controls.sys, "platform", "win32")
     monkeypatch.setattr(controls.sys, "executable", str(executable))
@@ -292,13 +295,20 @@ def test_windows_handler_installs_updates_and_uninstalls(tmp_path, monkeypatch):
         "AgentVoiceOwned": "1",
     }
     assert registry.keys[rf"{base}\shell\open\command"][None] == (
-        f'"{executable}" -m agent_voice control-url "%1"'
+        f'"{windowed}" -m agent_voice control-url "%1"'
     )
 
     assert controls.install_handler() == location
     assert controls.uninstall_handler() is True
     assert controls.uninstall_handler() is False
     assert base not in registry.keys
+
+
+def test_windows_handler_falls_back_to_console_python(tmp_path, monkeypatch):
+    executable = tmp_path / "python.exe"
+    monkeypatch.setattr(controls.sys, "executable", str(executable))
+
+    assert controls._windows_handler_executable() == str(executable)
 
 
 def test_windows_handler_refuses_unowned_registry_key(monkeypatch):

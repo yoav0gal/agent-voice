@@ -391,6 +391,20 @@ def test_speaker_errors_use_cli_error_contract(monkeypatch, capsys):
     assert capsys.readouterr().err == "Error: invalid request\n"
 
 
+def test_cli_error_without_console_exits_cleanly(monkeypatch):
+    class FakeSpeaker:
+        def speak(self, request):
+            raise ValueError("invalid request")
+
+    monkeypatch.setattr(cli, "Speaker", FakeSpeaker)
+    monkeypatch.setattr(cli, "sys", SimpleNamespace(stderr=None))
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["speak", "Visible text."])
+
+    assert exit_info.value.code == 2
+
+
 def test_setup_prepares_model(tmp_path, monkeypatch, capsys):
     model_path = tmp_path / "model.onnx"
     monkeypatch.setattr(

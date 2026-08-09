@@ -36,6 +36,17 @@ def test_update_notice_skips_noninteractive_use(monkeypatch, capsys):
     assert capsys.readouterr().err == ""
 
 
+def test_update_notice_skips_when_no_console_is_attached(monkeypatch):
+    monkeypatch.setattr(updates, "sys", SimpleNamespace(stderr=None))
+    monkeypatch.setattr(
+        updates,
+        "_latest_version",
+        lambda: (_ for _ in ()).throw(AssertionError("network request")),
+    )
+
+    updates.notify_if_update_available()
+
+
 def test_run_update_delegates_to_uv(tmp_path, monkeypatch):
     calls = []
     (tmp_path / "uv-receipt.toml").touch()
