@@ -155,6 +155,7 @@ def test_play_audio_decodes_with_bundled_ffmpeg(tmp_path, monkeypatch):
         return Completed()
 
     monkeypatch.setattr(audio_module, "_ffmpeg_executable", lambda: "/bundled/ffmpeg")
+    monkeypatch.setattr(audio_module, "_no_window_creation_flags", lambda: 123)
     monkeypatch.setattr(audio_module.subprocess, "run", run)
     monkeypatch.setattr(audio_module, "_play_pcm", played.append)
 
@@ -164,7 +165,7 @@ def test_play_audio_decodes_with_bundled_ffmpeg(tmp_path, monkeypatch):
     assert command[0] == "/bundled/ffmpeg"
     assert command[command.index("-f") + 1] == "s16le"
     assert command[command.index("-ar") + 1] == "24000"
-    assert kwargs == {"check": True, "capture_output": True, "creationflags": 0}
+    assert kwargs == {"check": True, "capture_output": True, "creationflags": 123}
     assert played == [b"\x00\x00\x01\x00"]
 
 
