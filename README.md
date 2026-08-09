@@ -8,7 +8,7 @@
 
 ---
 
-https://github.com/user-attachments/assets/975dcfd0-17ec-4912-b3b1-ec084077f858
+![Agent Voice launch video](assets/agent-voice-launch.gif)
 
 Agent Voice gives AI agents the ability to create local speech recordings.
 
