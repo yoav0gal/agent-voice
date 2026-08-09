@@ -1,14 +1,18 @@
 
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-voice-logo-voiceprint-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-voice-logo-voiceprint.svg">
-  <img src="assets/brand/agent-voice-logo-voiceprint.svg" alt="Agent Voice logo" width="720">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-voice-logo-voiceprint-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-voice-logo-voiceprint.svg">
+    <img src="assets/brand/agent-voice-logo-voiceprint.svg" alt="Agent Voice logo" width="420">
+  </picture>
+</p>
 
 ---
 
-![Agent Voice launch video](assets/agent-voice-launch.gif)
+<p align="center">
+  <img src="assets/agent-voice-launch.gif" alt="Agent Voice launch video" width="560">
+</p>
 
 Agent Voice gives AI agents the ability to create local speech recordings.
 
