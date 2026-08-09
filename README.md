@@ -33,63 +33,94 @@ Brazilian Portuguese, though quality varies.
 
 ## Install and setup
 
-Install the CLI and download the speech model:
+Install the CLI with `uv`:
 
 ```sh
 uv tool install agent-voice
+```
+
+Or with `pipx`:
+
+```sh
+pipx install agent-voice
+```
+
+Then download the speech model:
+
+```sh
 agent-voice setup
 ```
 
-### Choose a delivery method
+For setup with experimental playback controls, see
+[Experimental desktop playback controls](#experimental-desktop-playback-controls).
 
-For desktop applications, the recommended way is to use the `-desktop` skills.
-They embed a media player directly in the answer and currently support
-Antigravity, Codex, and OpenCode:
-
-```sh
-npx skills add yoav0gal/agent-voice --skill create-speech-recording-desktop --global
-npx skills add yoav0gal/agent-voice --skill spoken-response-desktop --global
-```
-
-For CLIs and portable Markdown delivery, install the normal skills:
-
-```sh
-npx skills add yoav0gal/agent-voice --skill create-speech-recording --global
-npx skills add yoav0gal/agent-voice --skill spoken-response --global
-```
-
-The normal skills deliver three links:
-
-- **web player** — the recommended option; open it in an application browser.
-  In coding-agent apps, this view includes the written answer too.
-- **media app** — opens the linked recording in your default media app.
-- **web audio** — opens the audio directly and should start playing
-  automatically.
-
-Test it:
+Test the CLI directly:
 
 ```sh
 agent-voice speak "Hello from Agent Voice." --play
 ```
 
-## Skills
+### Choose a skill
 
-Agent Voice includes two skills:
+> [!Note]
+> **The skills are starting points. Copy them to customize delivery wording,
+> recording defaults, playback behavior, or when an agent should offer audio to
+> your liking!**
 
-- **create-speech-recording** turns supplied text into audio. Use it when you
-  want an agent to create a recording or read something aloud.
-- **spoken-response** creates an audio version of an agent's written response.
-  Use it when you want to listen to a long answer instead of reading it.
+Agent Voice provides two kinds of skill:
 
-Each skill also has a **`-desktop`** version that does the same job but
-delivers the recording through a player embedded in the desktop app.
+- **`create-speech-recording`** turns supplied text into audio. Use it to create
+  a recording or read something aloud.
+- **`spoken-response`** creates the spoken semantic twin of an assistant
+  response. It can speak the current response, the previous response, or later
+  responses in the thread.
 
-These skills are starting points. Copy them, edit them, and make them yours.
-You can change delivery wording, recording defaults, playback behavior, or
-when the agent should offer audio.
+Choose how the recording should appear in your agent:
 
-Each skill owns its delivery references. The CLI returns structured facts; the
-installed skill decides how those facts are presented.
+| Variant | Delivery format | Supported surfaces |
+| --- | --- | --- |
+| Normal | Portable Markdown links to the web player, media app, and web audio | Anywhere basic links can be clicked |
+| `-desktop` | Embedded native or HTML audio player | Codex Desktop, Antigravity, and OpenCode Desktop |
+| ⚠️ `-controls` ⚠️ | Clickable `agent-voice://` playback links with a web-player fallback | Compatible desktop renderers on macOS, Linux, and Windows |
+
+For portable delivery, install the normal skills:
+
+```sh
+npx skills add yoav0gal/agent-voice -g --skill create-speech-recording
+npx skills add yoav0gal/agent-voice -g --skill spoken-response
+```
+
+<p align="center">
+  <img src="assets/screenshots/portable-delivery.png" alt="Portable Agent Voice delivery with listening links and a terminal playback command" width="900">
+</p>
+
+For an embedded player in a supported desktop app, install the desktop skills:
+
+```sh
+npx skills add yoav0gal/agent-voice -g --skill create-speech-recording-desktop
+npx skills add yoav0gal/agent-voice -g --skill spoken-response-desktop
+```
+
+<p align="center">
+  <img src="assets/screenshots/desktop-delivery.png" alt="Agent Voice audio embedded natively inside a desktop conversation" width="720">
+</p>
+
+### Experimental desktop playback controls
+
+> [!WARNING]
+> Experimental feature.
+
+```sh
+agent-voice controls install
+npx skills add yoav0gal/agent-voice -g --skill create-speech-recording-controls
+npx skills add yoav0gal/agent-voice -g --skill spoken-response-controls
+```
+
+<p align="center">
+  <img src="assets/screenshots/controls-delivery.png" alt="Experimental Agent Voice playback controls with a web-player fallback" width="800">
+</p>
+
+Remove the handler with `agent-voice controls uninstall`.
 
 ## CLI
 
@@ -99,6 +130,7 @@ The CLI provides small primitives that agents can combine. Run
 | Command | What it does |
 | --- | --- |
 | `setup` | Download and verify speech model assets. |
+| `update` | Upgrade Agent Voice through its `uv` or `pipx` installer. |
 | `speak` | Turn text or stdin into a recording. |
 | `play` | Play an existing local recording. |
 | `voices` | List supported language tags and voices. |
@@ -106,6 +138,7 @@ The CLI provides small primitives that agents can combine. Run
 | `config` | View or change persistent defaults. |
 | `doctor` | Check that Agent Voice is ready. |
 | `viewer start\|stop` | Manage the local recording viewer. |
+| `controls install\|uninstall` | Install or remove the experimental desktop protocol handler. |
 | `serve` | Start the localhost speech API. |
 
 ### Speak
@@ -142,6 +175,7 @@ agent-voice speak "Here is your summary." \
 | `--lang TAG` | Set the language tag (default: `en-us`). |
 | `--speed NUMBER` | Set pitch-preserving playback speed. |
 | `--play` | Play the recording after creation. |
+| `--controls` | Include experimental desktop playback control links. |
 | `--service on\|off\|timed` | Control background inference. |
 | `--service-timeout MINUTES` | Set the idle timeout for timed mode. |
 | `--model-id ID`, `--variant NAME` | Select a model and build. |
@@ -199,6 +233,7 @@ language metadata are left alone. Opening a player or audio URL regenerates
 missing audio from its source with the original language and current voice and
 speed.
 
+> [!Note]
 > 🗒️ The viewer is a workaround for agent surfaces that do not support embedded
 audio. I expect native text-to-speech to become common across these platforms,
 which would be a better solution. For now, the viewer keeps playback and the

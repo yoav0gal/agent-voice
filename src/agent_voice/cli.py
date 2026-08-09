@@ -27,6 +27,7 @@ from .model import ModelSelection, SpeechModel, VoiceCatalog
 from .paths import resolved_recording_dir
 from .registry import MODEL_REGISTRY
 from .speaking import SpeakRequest, Speaker
+from .updates import notify_if_update_available, run_update
 from .viewer import ensure_viewer, stop_viewer
 
 
@@ -38,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "examples:\n"
             "  agent-voice setup\n"
+            "  agent-voice controls install\n"
             "  printf '%s' \"$TEXT\" | agent-voice speak --format mp3\n"
             '  agent-voice play "/path/to/recording.mp3"\n'
             "  agent-voice doctor --json\n\n"
@@ -57,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_model_arguments(setup)
     setup.add_argument("--force", action="store_true", help="download again")
+
+    subparsers.add_parser(
+        "update",
+        help="upgrade Agent Voice",
+        description="Upgrade Agent Voice through its uv or pipx installer.",
+    )
 
     speak = subparsers.add_parser(
         "speak",
@@ -106,6 +114,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--play",
         action="store_true",
         help="play after generating; successful JSON reports played=true",
+    )
+    speak.add_argument(
+        "--controls",
+        action="store_true",
+        help="include experimental desktop playback control links",
     )
     _add_model_arguments(speak)
     speak.add_argument(
@@ -251,15 +264,47 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="print one machine-readable viewer report",
         )
+
+    controls = subparsers.add_parser(
+        "controls",
+        help="manage desktop click controls",
+        description="Install or remove the Agent Voice link handler.",
+    )
+    control_actions = controls.add_subparsers(dest="controls_action", required=True)
+    install = control_actions.add_parser("install", help="install the link handler")
+    install.add_argument(
+        "--json", action="store_true", help="print one machine-readable report"
+    )
+    uninstall = control_actions.add_parser(
+        "uninstall", help="remove the installed link handler"
+    )
+    uninstall.add_argument(
+        "--json", action="store_true", help="print one machine-readable report"
+    )
+
+    control_url = subparsers.add_parser(
+        "control-url",
+        help="handle an Agent Voice control link",
+        description="Handle one agent-voice:// playback control link.",
+    )
+    control_url.add_argument("url")
+    control_url.add_argument("--json", action="store_true")
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command != "update":
+        notify_if_update_available()
     try:
         if args.command == "setup":
             _setup(args)
+        elif args.command == "update":
+            return_code = run_update()
+            if return_code:
+                raise SystemExit(return_code)
         elif args.command == "speak":
             _speak(args)
         elif args.command == "voices":
@@ -293,6 +338,10 @@ def main(argv: list[str] | None = None) -> None:
             _play(args)
         elif args.command == "viewer":
             _viewer(args)
+        elif args.command == "controls":
+            _controls(args)
+        elif args.command == "control-url":
+            _control_url(args)
     except (ValueError, RuntimeError, FileNotFoundError) as error:
         print(f"Error: {error}", file=sys.stderr)
         raise SystemExit(2) from error
@@ -409,6 +458,7 @@ def _speak(args: argparse.Namespace) -> None:
             service=args.service,
             service_timeout_minutes=args.service_timeout,
             service_url=args.service_url,
+            controls=args.controls,
         )
     )
     print(json.dumps(receipt.to_dict()))
@@ -539,6 +589,35 @@ def _viewer(args: argparse.Namespace) -> None:
         print(f"Recordings: {report.recordings_dir}")
     else:
         print("Recording viewer: stopped")
+
+
+def _controls(args: argparse.Namespace) -> None:
+    from .controls import handler_path, install_handler, uninstall_handler
+
+    installed = args.controls_action == "install"
+    path = install_handler() if installed else handler_path()
+    removed = False if installed else uninstall_handler()
+    report = {
+        "installed": installed,
+        "scheme": "agent-voice",
+        "path": str(path),
+    }
+    if not installed:
+        report["removed"] = removed
+    message = (
+        f"Agent Voice controls: {path}"
+        if installed
+        else f"Agent Voice controls: {'removed' if removed else 'not installed'}"
+    )
+    print(json.dumps(report) if args.json else message)
+
+
+def _control_url(args: argparse.Namespace) -> None:
+    from .controls import trigger_control_url
+
+    report = trigger_control_url(args.url)
+    if args.json:
+        print(json.dumps(report))
 
 
 if __name__ == "__main__":

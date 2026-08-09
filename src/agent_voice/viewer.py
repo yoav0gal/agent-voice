@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import secrets
 import shutil
 import signal
 import subprocess
@@ -17,16 +19,19 @@ from urllib.parse import quote
 
 from filelock import FileLock
 
+from .audio import PLAYBACK_ACTIONS
 from .media import CONTENT_TYPES
 from .paths import project_root, recording_dir
 
 
 _TRANSCRIPT_DIRECTORY = ".agent-voice-viewer"
 _PLAYER_DIRECTORY = "players"
+_CONTROL_DIRECTORY = "controls"
 _RECORDING_RETENTION_SECONDS = (4 * 24 + 18) * 60 * 60
 _STARTUP_TIMEOUT_SECONDS = 15.0
 _STARTUP_HEALTH_TIMEOUT_SECONDS = 1.0
-VIEWER_PROTOCOL = 3
+VIEWER_PROTOCOL = 8
+_CONTROL_TOKEN = re.compile(r"[A-Za-z0-9_-]{24}")
 
 
 @dataclass(frozen=True)
@@ -231,6 +236,14 @@ def publish_player(recording: Path, text: str) -> str:
             return f"{name}.html"
 
 
+def publish_control(recording: Path) -> str:
+    root = transcript_path(recording).parent / _CONTROL_DIRECTORY
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    token = secrets.token_urlsafe(18)
+    _write_text(root / f"{token}.txt", recording.name)
+    return token
+
+
 def transcript_path(recording: Path) -> Path:
     path = recording.expanduser().resolve()
     digest = hashlib.sha256(path.name.encode()).hexdigest()
@@ -270,6 +283,10 @@ def player_mapping_path(recordings: Path, player_name: str) -> Path:
     return recordings / _TRANSCRIPT_DIRECTORY / _PLAYER_DIRECTORY / f"{player_name}.txt"
 
 
+def control_mapping_path(recordings: Path, token: str) -> Path:
+    return recordings / _TRANSCRIPT_DIRECTORY / _CONTROL_DIRECTORY / f"{token}.txt"
+
+
 def recording_urls(
     viewer: Viewer,
     recording: Path,
@@ -282,6 +299,21 @@ def recording_urls(
         f"{viewer.url}/player/{quote(player_name, safe='')}",
         f"{viewer.url}/recordings/{name}",
     )
+
+
+def recording_control_urls(token: str) -> dict[str, str]:
+    if _CONTROL_TOKEN.fullmatch(token) is None:
+        raise ValueError("Invalid playback control token")
+    base = f"agent-voice://control/{token}"
+    return {action: f"{base}/{action}" for action in PLAYBACK_ACTIONS}
+
+
+def valid_control_token(token: str) -> bool:
+    return _CONTROL_TOKEN.fullmatch(token) is not None
+
+
+def active_viewer() -> Viewer | None:
+    return _running(_state())
 
 
 def _state() -> dict[str, object]:

@@ -16,16 +16,19 @@ import pytest
 
 from agent_voice import viewer as viewer_module
 from agent_voice import viewer_server
+from agent_voice import controls as controls_module
 from agent_voice.viewer import (
     VIEWER_PROTOCOL,
     Viewer,
     delete_expired_recordings,
     ensure_viewer,
     publish_language,
+    publish_control,
     publish_player,
     publish_recording,
     publish_source,
     recording_urls,
+    recording_control_urls,
     source_path,
     stop_viewer,
     transcript_path,
@@ -145,6 +148,83 @@ def test_player_urls_keep_audio_formats_distinct(tmp_path):
             assert 'src="/recordings/sample.mp3"' in response.read().decode()
         with urllib.request.urlopen(f"{url}/player/sample-2.html") as response:
             assert 'src="/recordings/sample.wav"' in response.read().decode()
+
+
+def test_recording_control_url_toggles_one_nonblocking_player(tmp_path, monkeypatch):
+    recording = tmp_path / "sample.mp3"
+    recording.write_bytes(b"audio")
+    control_token = publish_control(recording)
+    calls = []
+
+    class Playback:
+        def control(self, path, action):
+            calls.append((path, action))
+            playing = len(calls) % 2 == 1
+            return SimpleNamespace(to_dict=lambda: {"playing": playing})
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(viewer_server, "PlaybackController", Playback)
+
+    with _running_viewer(tmp_path) as (server, url):
+        viewer = Viewer(tmp_path, server.server_port, 123)
+        monkeypatch.setattr(controls_module, "active_viewer", lambda: viewer)
+        control_url = recording_control_urls(control_token)["toggle"]
+        assert controls_module.trigger_control_url(control_url) == {"playing": True}
+        assert controls_module.trigger_control_url(control_url) == {"playing": False}
+        request = urllib.request.Request(
+            f"{url}/control/{control_token}/toggle", method="HEAD"
+        )
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(request)
+        assert rejected.value.code == 405
+
+        request = urllib.request.Request(
+            f"{url}/control/{control_token}/toggle",
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(request)
+        assert rejected.value.code == 403
+
+        request = urllib.request.Request(
+            f"{url}/control/{control_token}/delete",
+            headers={"X-Agent-Voice-Control": "1"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(request)
+        assert rejected.value.code == 404
+
+    assert calls == [
+        (recording.resolve(), "toggle"),
+        (recording.resolve(), "toggle"),
+    ]
+
+
+def test_rejected_control_probe_does_not_regenerate_missing_audio(
+    tmp_path, monkeypatch
+):
+    recording = tmp_path / "missing.mp3"
+    control_token = publish_control(recording)
+    monkeypatch.setattr(
+        viewer_server,
+        "_regenerate_recording",
+        lambda _path: (_ for _ in ()).throw(AssertionError("unexpected regeneration")),
+    )
+
+    with _running_viewer(tmp_path) as (server, _url):
+        control_url = (
+            f"http://127.0.0.1:{server.server_port}/control/{control_token}/toggle"
+        )
+        request = urllib.request.Request(
+            control_url,
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(request)
+        assert rejected.value.code == 403
 
 
 def test_viewer_supports_head(tmp_path):

@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import wave
+from types import SimpleNamespace
 
+import miniaudio
 import numpy as np
 import pytest
 
 from agent_voice import audio as audio_module
-from agent_voice.audio import change_tempo, write_audio, write_audio_bytes
+from agent_voice.audio import (
+    PlaybackController,
+    change_tempo,
+    write_audio,
+    write_audio_bytes,
+)
 
 
 def test_write_wav(tmp_path):
@@ -183,3 +190,224 @@ def test_play_pcm_uses_miniaudio_until_stream_finishes(monkeypatch):
     assert device_options["sample_rate"] == 24_000
     assert device_options["app_name"] == "Agent Voice"
     assert closed == [True]
+
+
+def test_playback_controller_toggle_pauses_and_resumes_without_redecoding(tmp_path):
+    recording = tmp_path / "sample.mp3"
+    recording.write_bytes(b"audio")
+    decodes = []
+    devices = []
+
+    class Device:
+        def __init__(self):
+            devices.append(self)
+            self.running = False
+
+        def start(self, stream):
+            self.stream = stream
+            self.running = True
+
+        def stop(self):
+            self.running = False
+
+        def close(self):
+            self.running = False
+
+    controller = PlaybackController(
+        decoder=lambda path: decodes.append(path) or bytes(96_000),
+        device_factory=lambda **_options: Device(),
+    )
+    try:
+        assert controller.control(recording, "toggle").playing is True
+        devices[0].stream.send(24_000)
+        assert controller.control(recording, "toggle").playing is False
+        resumed = controller.control(recording, "toggle")
+        assert resumed.playing is True
+        assert resumed.position_seconds == 1.0
+    finally:
+        controller.close()
+
+    assert decodes == [recording.resolve()]
+
+
+def test_playback_controller_restarts_and_seeks_ten_seconds(tmp_path):
+    recording = tmp_path / "sample.mp3"
+    recording.write_bytes(b"audio")
+    controller = PlaybackController(
+        decoder=lambda _path: bytes(30 * 48_000),
+        device_factory=lambda **_options: SimpleNamespace(
+            start=lambda _stream: None,
+            close=lambda: None,
+        ),
+    )
+    try:
+        assert controller.control(recording, "forward").position_seconds == 10
+        assert controller.control(recording, "forward").position_seconds == 20
+        end = controller.control(recording, "forward")
+        assert end.position_seconds == 30
+        assert end.playing is False
+        assert controller.control(recording, "back").position_seconds == 20
+        restarted = controller.control(recording, "restart")
+        assert restarted.position_seconds == 0
+        assert restarted.playing is True
+    finally:
+        controller.close()
+
+
+def test_playback_controller_changes_speed_from_half_to_double_at_same_position(
+    tmp_path,
+):
+    recording = tmp_path / "sample.mp3"
+    recording.write_bytes(b"audio")
+    changes = []
+
+    class Device:
+        running = False
+
+        def start(self, _stream):
+            self.running = True
+
+        def stop(self):
+            self.running = False
+
+        def close(self):
+            self.running = False
+
+    def change_tempo(pcm, speed):
+        changes.append(speed)
+        return bytes(int(len(pcm) / speed))
+
+    controller = PlaybackController(
+        decoder=lambda _path: bytes(60 * 48_000),
+        device_factory=lambda **_options: Device(),
+        tempo_changer=change_tempo,
+    )
+    try:
+        assert controller.control(recording, "forward").position_seconds == 10
+        assert controller.control(recording, "slower").speed == 0.75
+        slowest = controller.control(recording, "slower")
+        assert slowest.speed == 0.5
+        assert slowest.position_seconds == 10
+        assert controller.control(recording, "slower").speed == 0.5
+        assert controller.control(recording, "forward").position_seconds == 20
+        assert controller.control(recording, "back").position_seconds == 10
+
+        for _ in range(6):
+            fastest = controller.control(recording, "faster")
+        assert fastest.speed == 2.0
+        assert fastest.position_seconds == pytest.approx(10, abs=0.001)
+
+        assert controller.control(recording, "toggle").playing is True
+        changed_while_playing = controller.control(recording, "slower")
+        assert changed_while_playing.speed == 1.75
+        assert changed_while_playing.playing is True
+        assert changed_while_playing.position_seconds == pytest.approx(10, abs=0.001)
+
+        other = tmp_path / "other.mp3"
+        other.write_bytes(b"audio")
+        switched = controller.control(other, "faster")
+        assert switched.speed == 1.25
+        assert switched.position_seconds == 0
+        assert switched.playing is False
+    finally:
+        controller.close()
+
+    assert changes == [
+        0.75,
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        1.75,
+        1.25,
+    ]
+
+
+def test_playback_controller_uses_live_position_after_tempo_change(tmp_path):
+    recording = tmp_path / "sample.mp3"
+    recording.write_bytes(b"audio")
+    device = SimpleNamespace(running=False)
+
+    def start(stream):
+        device.stream = stream
+        device.running = True
+
+    device.start = start
+    device.stop = lambda: setattr(device, "running", False)
+    device.close = device.stop
+
+    def change_tempo(pcm, speed):
+        device.stream.send(24_000)
+        return bytes(int(len(pcm) / speed))
+
+    controller = PlaybackController(
+        decoder=lambda _path: bytes(20 * 48_000),
+        device_factory=lambda **_options: device,
+        tempo_changer=change_tempo,
+    )
+    try:
+        controller.control(recording, "toggle")
+        device.stream.send(24_000)
+        changed = controller.control(recording, "faster")
+    finally:
+        controller.close()
+
+    assert changed.position_seconds == 2
+
+
+def test_playback_controller_keeps_prior_speed_when_tempo_change_fails(tmp_path):
+    recording = tmp_path / "sample.mp3"
+    recording.write_bytes(b"audio")
+    controller = PlaybackController(
+        decoder=lambda _path: bytes(30 * 48_000),
+        tempo_changer=lambda _pcm, _speed: (_ for _ in ()).throw(
+            RuntimeError("tempo failed")
+        ),
+    )
+    try:
+        assert controller.control(recording, "forward").position_seconds == 10
+        with pytest.raises(RuntimeError, match="tempo failed"):
+            controller.control(recording, "faster")
+        state = controller.control(recording, "back")
+        assert state.speed == 1.0
+        assert state.position_seconds == 0
+        assert state.playing is False
+    finally:
+        controller.close()
+
+
+def test_playback_controller_recovers_after_device_start_failure(tmp_path):
+    recording = tmp_path / "sample.mp3"
+    recording.write_bytes(b"audio")
+    starts = []
+
+    class Device:
+        running = False
+
+        def start(self, _stream):
+            starts.append(None)
+            if len(starts) == 1:
+                raise miniaudio.MiniaudioError("failed")
+            self.running = True
+
+        def stop(self):
+            self.running = False
+
+        def close(self):
+            self.running = False
+
+    controller = PlaybackController(
+        decoder=lambda _path: bytes(48_000),
+        device_factory=lambda **_options: Device(),
+    )
+    try:
+        with pytest.raises(RuntimeError, match="audio playback failed"):
+            controller.control(recording, "toggle")
+        assert controller.control(recording, "toggle").playing is True
+    finally:
+        controller.close()
+
+    assert len(starts) == 2

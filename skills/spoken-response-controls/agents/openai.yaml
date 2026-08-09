@@ -1,0 +1,7 @@
+interface:
+  display_name: "Spoken Response Controls"
+  short_description: "Spoken responses with desktop playback controls"
+  default_prompt: "Use $spoken-response-controls for this response."
+
+policy:
+  allow_implicit_invocation: false

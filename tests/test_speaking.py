@@ -49,11 +49,26 @@ class FakeGenerator:
 
 def delivery_success(calls: list | None = None):
     def prepare(
-        recording, text, *, source_text, language, audio_format, recordings_dir
+        recording,
+        text,
+        *,
+        source_text,
+        language,
+        audio_format,
+        recordings_dir,
+        controls,
     ):
         if calls is not None:
             calls.append(
-                (recording, text, source_text, language, audio_format, recordings_dir)
+                (
+                    recording,
+                    text,
+                    source_text,
+                    language,
+                    audio_format,
+                    recordings_dir,
+                    controls,
+                )
             )
         resolved = recording.resolve()
         return Delivery(
@@ -499,7 +514,15 @@ def test_delivery_receives_the_planned_recording_root(tmp_path):
     )
 
     assert calls == [
-        (output, "Visible text.", "Visible text.", "en-us", "mp3", recording_root)
+        (
+            output,
+            "Visible text.",
+            "Visible text.",
+            "en-us",
+            "mp3",
+            recording_root,
+            False,
+        )
     ]
     assert receipt.delivery.browser_url is not None
 
@@ -513,6 +536,7 @@ def test_delivery_prefers_the_written_response(tmp_path):
             SELECTION,
             response_markdown="# Written response",
             language="he-il",
+            controls=True,
             service="off",
         )
     )
@@ -520,13 +544,21 @@ def test_delivery_prefers_the_written_response(tmp_path):
     assert calls[0][1] == "# Written response"
     assert calls[0][2] == "Spoken narration."
     assert calls[0][3] == "he-il"
+    assert calls[0][6] is True
 
 
 def test_delivery_failure_facts_are_typed_serialized_and_reported(tmp_path):
     notices = []
 
     def fallback(
-        recording, text, *, source_text, language, audio_format, recordings_dir
+        recording,
+        text,
+        *,
+        source_text,
+        language,
+        audio_format,
+        recordings_dir,
+        controls,
     ):
         return Delivery(warning="viewer unavailable")
 
@@ -555,6 +587,7 @@ def test_receipt_serialization_preserves_public_json_shape(tmp_path):
         browser_url="http://127.0.0.1:49123/player/recording.html",
         audio_url="http://127.0.0.1:49123/recordings/recording.mp3",
         recording_path=recording.path,
+        controls={"toggle": "agent-voice://control/token/toggle"},
     )
 
     receipt = SpeakReceipt(
@@ -583,6 +616,7 @@ def test_receipt_serialization_preserves_public_json_shape(tmp_path):
             "browser_url": "http://127.0.0.1:49123/player/recording.html",
             "audio_url": "http://127.0.0.1:49123/recordings/recording.mp3",
             "recording_path": str(recording.path),
+            "controls": {"toggle": "agent-voice://control/token/toggle"},
         },
     }
 

@@ -51,6 +51,7 @@ class SpeakRequest:
     service_timeout_minutes: float | None = None
     service_url: str = DEFAULT_SERVICE_URL
     response_markdown: str | None = None
+    controls: bool = False
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,8 @@ class SpeakReceipt:
                     "recording_path": str(self.delivery.recording_path),
                 }
             )
+            if self.delivery.controls is not None:
+                delivery["controls"] = self.delivery.controls
         payload["delivery"] = delivery
         return payload
 
@@ -103,6 +106,7 @@ class _ResolvedSpeakRequest:
     service: str
     service_timeout_minutes: float | None
     service_url: str
+    controls: bool
 
 
 class _RecordingGenerator(Protocol):
@@ -119,6 +123,7 @@ class _DeliveryPreparer(Protocol):
         language: str,
         audio_format: str,
         recordings_dir: Path,
+        controls: bool,
     ) -> Delivery: ...
 
 
@@ -233,6 +238,7 @@ class Speaker:
             language=resolved.language,
             audio_format=recording.format,
             recordings_dir=resolved.output.recording_root,
+            controls=resolved.controls,
         )
         if delivery.warning is not None:
             self._notice(f"Warning: {delivery.warning}")
@@ -266,6 +272,7 @@ class Speaker:
             service=service,
             service_timeout_minutes=timeout,
             service_url=request.service_url,
+            controls=request.controls,
         )
 
     def _plan_output(
