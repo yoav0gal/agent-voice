@@ -25,6 +25,10 @@ PLAYBACK_SPEEDS = (0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
 PLAYBACK_ACTIONS = ("toggle", "restart", "back", "forward", "slower", "faster")
 
 
+def _no_window_creation_flags() -> int:
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+
+
 @dataclass(frozen=True)
 class AudioRuntime:
     ffmpeg_path: str | None
@@ -329,7 +333,11 @@ def change_tempo(
     ]
     try:
         completed = subprocess.run(
-            command, input=source.tobytes(), check=True, capture_output=True
+            command,
+            input=source.tobytes(),
+            check=True,
+            capture_output=True,
+            creationflags=_no_window_creation_flags(),
         )
     except subprocess.CalledProcessError as error:
         detail = error.stderr.decode(errors="replace").strip()
@@ -439,7 +447,12 @@ def _encode_audio(
             command += ["-codec:a", "aac", "-b:a", "128k"]
         command.append(str(destination))
         try:
-            subprocess.run(command, check=True, capture_output=True)
+            subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                creationflags=_no_window_creation_flags(),
+            )
         except subprocess.CalledProcessError as error:
             detail = error.stderr.decode(errors="replace").strip()
             raise RuntimeError(
@@ -475,7 +488,12 @@ def _decode_for_playback(path: Path) -> bytes:
         "pipe:1",
     ]
     try:
-        completed = subprocess.run(command, check=True, capture_output=True)
+        completed = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            creationflags=_no_window_creation_flags(),
+        )
     except subprocess.CalledProcessError as error:
         detail = error.stderr.decode(errors="replace").strip()
         raise RuntimeError(

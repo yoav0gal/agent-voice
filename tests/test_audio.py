@@ -128,6 +128,15 @@ def test_ffmpeg_executable_uses_packaged_runtime(monkeypatch):
     assert audio_module._ffmpeg_executable() == "/package/imageio_ffmpeg/ffmpeg"
 
 
+def test_windows_ffmpeg_processes_do_not_open_console_windows(monkeypatch):
+    monkeypatch.setattr(audio_module, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        audio_module.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False
+    )
+
+    assert audio_module._no_window_creation_flags() == 0x08000000
+
+
 @pytest.mark.parametrize("factor", [0.49, 4.01])
 def test_change_tempo_rejects_unsupported_factor(factor):
     with pytest.raises(ValueError, match="between 0.5 and 4.0"):
@@ -155,7 +164,7 @@ def test_play_audio_decodes_with_bundled_ffmpeg(tmp_path, monkeypatch):
     assert command[0] == "/bundled/ffmpeg"
     assert command[command.index("-f") + 1] == "s16le"
     assert command[command.index("-ar") + 1] == "24000"
-    assert kwargs == {"check": True, "capture_output": True}
+    assert kwargs == {"check": True, "capture_output": True, "creationflags": 0}
     assert played == [b"\x00\x00\x01\x00"]
 
 
