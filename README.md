@@ -6,13 +6,11 @@
     <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-voice-logo-voiceprint.svg">
     <img src="assets/brand/agent-voice-logo-voiceprint.svg" alt="Agent Voice logo" width="420">
   </picture>
+  <br/>
+  <img src="assets/agent-voice-launch.gif" alt="Agent Voice launch video" width="560">
 </p>
 
 ---
-
-<p align="center">
-  <img src="assets/agent-voice-launch.gif" alt="Agent Voice launch video" width="560">
-</p>
 
 Agent Voice gives AI agents the ability to create local speech recordings.
 
