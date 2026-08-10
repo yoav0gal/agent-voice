@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import plistlib
 import sys
 from pathlib import Path
@@ -194,7 +195,8 @@ def test_linux_handler_installs_updates_and_uninstalls(tmp_path, monkeypatch):
     assert (
         f"Exec={controls._desktop_exec(str(executable))} -m agent_voice control-url %u"
     ) in contents
-    assert desktop.stat().st_mode & 0o111
+    if os.name != "nt":
+        assert desktop.stat().st_mode & 0o111
     assert commands[:2] == [
         [
             "/usr/bin/xdg-mime",
