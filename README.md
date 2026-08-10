@@ -29,7 +29,7 @@ key. English is the best-supported language. The bundled 54-voice catalog also
 covers Japanese, Mandarin Chinese, Spanish, French, Hindi, Italian, and
 Brazilian Portuguese, though quality varies.
 
-[Check them out here](https://rewind.ai/voices/).
+[Listen to the voice catalog](https://rewind.ai/voices/).
 
 ## Install and setup
 
@@ -51,8 +51,8 @@ Then download the speech model:
 agent-voice setup
 ```
 
-For setup with experimental playback controls, see
-[Experimental desktop playback controls](#experimental-desktop-playback-controls).
+For setup with terminal playback controls, see
+[Terminal playback controls](#terminal-playback-controls).
 
 Test the CLI directly:
 
@@ -62,12 +62,11 @@ agent-voice speak "Hello from Agent Voice." -p
 
 ### Choose a skill
 
-> [!Note]
+> [!NOTE]
 > **The skills are starting points. Copy them to customize delivery wording,
-> recording defaults, playback behavior, or when an agent should offer audio to
-> your liking!**
+> recording defaults, playback behavior, and when audio should be offered.**
 
-Agent Voice provides two kinds of skill:
+Agent Voice provides two skill types:
 
 - **`create-speech-recording`** turns supplied text into audio. Use it to create
   a recording or read something aloud.
@@ -75,15 +74,28 @@ Agent Voice provides two kinds of skill:
   response. It can speak the current response, the previous response, or later
   responses in the thread.
 
-Choose how the recording should appear in your agent:
+<p align="center">
+  <img src="assets/diagrams/skill-choice.png" alt="Choose the Agent Voice desktop, terminal controls, or normal skill variant" width="900">
+</p>
 
-| Variant | Delivery format | Supported surfaces |
+#### Choose the variant based on where you run your agent
+
+| Where you use your agent | Recommended variant | What you get |
 | --- | --- | --- |
-| Normal | Portable Markdown links to the web player, media app, and web audio | Anywhere basic links can be clicked |
-| `-desktop` | Embedded native or HTML audio player | Codex Desktop, Antigravity, and OpenCode Desktop |
-| ⚠️ `-controls` ⚠️ | Clickable `agent-voice://` playback links with a web-player fallback | Compatible desktop renderers on macOS, Linux, and Windows |
+| ChatGPT (Codex), OpenCode Desktop, and Antigravity 2.0 | Use the `-desktop` skills | Embedded native or HTML audio player |
+| A terminal | Try `-controls` skills first | Clickable `agent-voice://` playback controls with a web-player fallback |
+| Any other setup, or when desktop delivery or terminal controls do not work | Use the normal skills | Portable Markdown links to the web player, media app, and web audio |
 
-For portable delivery, install the normal skills:
+> [!NOTE]
+> Other apps may also support `-desktop` or `-controls`. If your app is not
+> listed, try the matching variant. Use the normal skills if neither works.
+
+> [!TIP]
+> Terminal controls should work in many terminals. Depending on your terminal
+> and operating system, you may be asked to approve opening `agent-voice://`
+> links. If the links are not clickable or do not open, use the normal skills.
+
+#### Normal skills (most portable)
 
 ```sh
 npx skills add yoav0gal/agent-voice -g --skill create-speech-recording
@@ -94,7 +106,7 @@ npx skills add yoav0gal/agent-voice -g --skill spoken-response
   <img src="assets/screenshots/portable-delivery.png" alt="Portable Agent Voice delivery with listening links and a terminal playback command" width="900">
 </p>
 
-For an embedded player in a supported desktop app, install the desktop skills:
+#### Desktop skills (best experience for desktop app users)
 
 ```sh
 npx skills add yoav0gal/agent-voice -g --skill create-speech-recording-desktop
@@ -105,7 +117,7 @@ npx skills add yoav0gal/agent-voice -g --skill spoken-response-desktop
   <img src="assets/screenshots/desktop-delivery.png" alt="Agent Voice audio embedded natively inside a desktop conversation" width="720">
 </p>
 
-### Experimental desktop playback controls
+#### Controls skills (best experience in supported terminals)
 
 > [!WARNING]
 > Experimental feature.
@@ -139,7 +151,7 @@ The CLI provides small primitives that agents can combine. Run
 | `doctor` | Check that Agent Voice is ready. |
 | `service start\|stop` | Manage the background speech service. |
 | `viewer start\|stop` | Manage the local recording viewer. |
-| `controls install\|uninstall` | Install or remove the experimental desktop protocol handler. |
+| `controls install\|uninstall` | Install or remove the experimental `agent-voice://` protocol handler. |
 | `serve` | Start the localhost speech API. |
 
 ### Speak
@@ -177,13 +189,13 @@ agent-voice speak "Here is your summary." \
 | `--speed NUMBER` | Set pitch-preserving playback speed. |
 | `-p, --play` | Start local playback after creation, without waiting for it to finish. |
 | `--play-after SECONDS` | Schedule local playback after creation, without waiting. |
-| `--controls` | Include experimental desktop playback control links. |
+| `--controls` | Include experimental `agent-voice://` playback control links. |
 | `--no-service` | Run the same Agent Voice model inside this command, then unload it. |
 | `--model-id ID`, `--variant NAME` | Select a model and build. |
 
 `speak` prints one JSON receipt with the absolute recording path, file URI,
-audio metadata, playback state (`started` or `scheduled`), and available viewer links. This makes the
-command reliable for both people and agents.
+audio metadata, playback state (`started` or `scheduled`), and available viewer
+links. This makes the command reliable for both people and agents.
 
 ### Configure defaults
 
@@ -255,11 +267,11 @@ speed.
 Playback commands return as soon as local playback starts, or immediately with
 `scheduled` when a delay is requested; they never wait for the recording to end.
 
-> [!Note]
+> [!NOTE]
 > 🗒️ The viewer is a workaround for agent surfaces that do not support embedded
-audio. I expect native text-to-speech to become common across these platforms,
-which would be a better solution. For now, the viewer keeps playback and the
-written response together in a local page. 🗒️
+> audio. I expect native text-to-speech to become common across these platforms,
+> which would be a better solution. For now, the viewer keeps playback and the
+> written response together in a local page. 🗒️
 
 ### Local speech API
 

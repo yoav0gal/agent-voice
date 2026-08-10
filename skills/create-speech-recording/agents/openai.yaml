@@ -4,4 +4,4 @@ interface:
   default_prompt: "Use $create-speech-recording to create a speech recording from this text."
 
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false
