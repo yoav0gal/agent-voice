@@ -96,12 +96,13 @@ def test_serve_accepts_the_highest_valid_port():
                 "--format",
                 "--play",
                 "--controls",
-                "--service",
+                "--no-service",
             ),
         ),
         ("voices", ("--json", "--model-id", "--variant")),
         ("doctor", ("--service-url", "--json")),
         ("serve", ("--host", "--port", "--idle-timeout")),
+        ("service", ("start", "stop")),
         ("viewer", ("start", "stop")),
     ],
 )
@@ -114,14 +115,14 @@ def test_command_help_exposes_public_options(command, public_options, capsys):
     assert all(option in help_text for option in public_options)
 
 
-def test_config_help_uses_service_modes_and_timeout_language(capsys):
+def test_config_help_exposes_only_the_service_timeout(capsys):
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["config", "--help"])
 
     assert exit_info.value.code == 0
     help_text = capsys.readouterr().out
-    assert "--service {on,off,timed}" in help_text
     assert "--service-timeout MINUTES" in help_text
+    assert "--service {" not in help_text
     assert "--keep-alive" not in help_text
 
 
@@ -137,6 +138,61 @@ def test_viewer_commands_report_start_and_stop(tmp_path, monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out) == running.to_dict()
     cli.main(["viewer", "stop", "--json"])
     assert json.loads(capsys.readouterr().out) == stopped.to_dict()
+
+
+def test_service_commands_report_start_and_stop(monkeypatch, capsys):
+    started = {
+        "status": "ok",
+        "service": "agent-voice",
+        "model_id": "kokoro",
+        "variant": "int8",
+    }
+    calls = []
+    configured = []
+
+    def start(url, selection, timeout):
+        calls.append((url, selection, timeout))
+        return started
+
+    monkeypatch.setattr(cli, "ensure_service", start)
+    monkeypatch.setattr(
+        cli,
+        "set_service_timeout",
+        lambda url, timeout: configured.append((url, timeout)),
+    )
+    monkeypatch.setattr(cli, "stop_service", lambda _url: True)
+
+    cli.main(["config", "--service-timeout", "3.5", "--json"])
+    capsys.readouterr()
+    cli.main(["service", "start", "--json"])
+    assert json.loads(capsys.readouterr().out) == {
+        **started,
+        "running": True,
+        "url": "http://127.0.0.1:8765",
+        "service_timeout_minutes": 3.5,
+    }
+    assert calls == [("http://127.0.0.1:8765", ModelSelection("kokoro", "int8"), 3.5)]
+    assert configured == [("http://127.0.0.1:8765", 3.5)]
+
+    cli.main(["service", "stop", "--json"])
+    assert json.loads(capsys.readouterr().out) == {
+        "running": False,
+        "stopped": True,
+        "url": "http://127.0.0.1:8765",
+    }
+
+
+def test_service_start_accepts_an_idle_timeout_and_has_help(capsys):
+    args = cli.build_parser().parse_args(["service", "start", "--idle-timeout", "2.5"])
+    assert args.idle_timeout == 2.5
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["service", "start", "--help"])
+
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--idle-timeout MINUTES" in help_text
+    assert "built-in 10" in help_text
 
 
 def test_model_arguments_separate_identity_from_variant():
@@ -271,10 +327,7 @@ def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, 
             "kokoro",
             "--variant",
             "fp16",
-            "--service",
-            "timed",
-            "--service-timeout",
-            "2.5",
+            "--no-service",
             "--service-url",
             "http://127.0.0.1:9000",
         ]
@@ -294,8 +347,7 @@ def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, 
             language="en-gb",
             play=True,
             controls=True,
-            service="timed",
-            service_timeout_minutes=2.5,
+            no_service=True,
             service_url="http://127.0.0.1:9000",
         )
     ]
@@ -317,10 +369,10 @@ def test_speak_reads_stdin_and_always_serializes_json(monkeypatch, capsys):
     monkeypatch.setattr(cli, "Speaker", FakeSpeaker)
     monkeypatch.setattr(cli.sys, "stdin", io.StringIO("Text from stdin."))
 
-    cli.main(["speak", "--service", "off"])
+    cli.main(["speak", "--no-service"])
 
     assert captured[0].text == "Text from stdin."
-    assert captured[0].service == "off"
+    assert captured[0].no_service is True
     assert json.loads(capsys.readouterr().out) == {"receipt": True}
 
 

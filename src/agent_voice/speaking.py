@@ -16,13 +16,7 @@ from .client import (
     ensure_service,
     request_speech,
 )
-from .config import (
-    DEFAULT_SERVICE_TIMEOUT_MINUTES,
-    FORMATS,
-    SERVICE_MODES,
-    SpeechDefaults,
-    load_defaults,
-)
+from .config import FORMATS, SpeechDefaults, load_defaults
 from .delivery import Delivery, prepare_delivery
 from .model import (
     ModelSelection,
@@ -47,8 +41,7 @@ class SpeakRequest:
     speed: float | None = None
     language: str = "en-us"
     play: bool = False
-    service: str | None = None
-    service_timeout_minutes: float | None = None
+    no_service: bool = False
     service_url: str = DEFAULT_SERVICE_URL
     response_markdown: str | None = None
     controls: bool = False
@@ -103,8 +96,8 @@ class _ResolvedSpeakRequest:
     speed: float
     language: str
     play: bool
-    service: str
-    service_timeout_minutes: float | None
+    no_service: bool
+    service_timeout_minutes: float
     service_url: str
     controls: bool
 
@@ -211,7 +204,7 @@ class Speaker:
         resolved = self._resolve(request, defaults)
         fallback = False
         try:
-            if resolved.service == "off":
+            if resolved.no_service:
                 recording = self._embedded.generate(resolved)
             else:
                 try:
@@ -255,7 +248,6 @@ class Speaker:
         request: SpeakRequest,
         defaults: SpeechDefaults,
     ) -> _ResolvedSpeakRequest:
-        service, timeout = _resolve_service_policy(request, defaults)
         return _ResolvedSpeakRequest(
             text=request.text,
             response_markdown=(
@@ -269,8 +261,8 @@ class Speaker:
             speed=request.speed if request.speed is not None else defaults.speed,
             language=request.language,
             play=request.play,
-            service=service,
-            service_timeout_minutes=timeout,
+            no_service=request.no_service,
+            service_timeout_minutes=defaults.service_timeout_minutes,
             service_url=request.service_url,
             controls=request.controls,
         )
@@ -325,26 +317,6 @@ class Speaker:
             recording_root,
             True,
         )
-
-
-def _resolve_service_policy(
-    request: SpeakRequest,
-    defaults: SpeechDefaults,
-) -> tuple[str, float | None]:
-    configured = defaults.service
-    service = request.service if request.service is not None else configured.mode
-    if service not in SERVICE_MODES:
-        raise ValueError(f"Service mode must be one of: {', '.join(SERVICE_MODES)}")
-    requested_timeout = request.service_timeout_minutes
-    if requested_timeout is not None and service != "timed":
-        raise ValueError("--service-timeout can only be used with --service timed")
-    if service != "timed":
-        return service, None
-    if requested_timeout is not None:
-        return service, requested_timeout
-    if configured.mode == "timed":
-        return service, configured.timeout_minutes
-    return service, DEFAULT_SERVICE_TIMEOUT_MINUTES
 
 
 def _require_planned_recording(

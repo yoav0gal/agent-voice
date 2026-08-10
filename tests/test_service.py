@@ -5,6 +5,7 @@ import time
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -15,6 +16,8 @@ from agent_voice.client import (
     ensure_service,
     health_check,
     request_speech,
+    set_service_timeout,
+    stop_service,
     validate_service_url,
 )
 from agent_voice.config import update_defaults
@@ -217,6 +220,8 @@ def test_health_and_speech_contract(tmp_path):
             ModelSelection("test-model", "test-variant"),
             2.5,
         )
+        assert server.idle_timeout_seconds is None
+        set_service_timeout(url, 2.5)
         assert server.idle_timeout_seconds == 150
         unsafe_request = urllib.request.Request(
             f"{url}/v1/audio/speech",
@@ -241,7 +246,6 @@ def test_health_and_speech_contract(tmp_path):
     assert health["model"] == "Test Model"
     assert health["model_id"] == "test-model"
     assert health["variant"] == "test-variant"
-    assert health["service_mode"] == "on"
     assert health["service_timeout_minutes"] is None
     assert hostile.value.code == 403
     assert json.loads(hostile.value.read())["error"] == "Host must be localhost"
@@ -379,6 +383,28 @@ def test_idle_server_stops_after_timeout():
     assert not thread.is_alive()
 
 
+def test_service_stop_is_idempotent():
+    model = SimpleNamespace(
+        descriptor=ModelDescriptor(
+            selection=ModelSelection("test-model", "test-variant"),
+            display_name="Test Model",
+            runtime="test-runtime",
+            capabilities=frozenset(),
+        )
+    )
+    server = create_server(model, "127.0.0.1", 0)
+    url = f"http://127.0.0.1:{server.server_port}"
+    thread = threading.Thread(target=server.serve_until_idle)
+    thread.start()
+    try:
+        assert stop_service(url) is True
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+        assert stop_service(url) is False
+    finally:
+        server.server_close()
+
+
 @pytest.mark.parametrize(
     ("idle_timeout", "message"),
     [
@@ -386,10 +412,12 @@ def test_idle_server_stops_after_timeout():
         (None, "no idle timeout"),
     ],
 )
-def test_service_starts_detached_and_waits_for_health(
+def test_service_starts_without_a_window_and_waits_for_health(
     tmp_path, monkeypatch, capsys, idle_timeout, message
 ):
     monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
+    monkeypatch.setattr(client, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(client.subprocess, "CREATE_NO_WINDOW", 123, raising=False)
     checks = 0
     captured = {}
 
@@ -417,12 +445,6 @@ def test_service_starts_detached_and_waits_for_health(
         return Process()
 
     monkeypatch.setattr(client, "health_check", check)
-    configured = []
-    monkeypatch.setattr(
-        client,
-        "_configure_service_lifecycle",
-        lambda url, timeout: configured.append((url, timeout)),
-    )
     monkeypatch.setattr(client.subprocess, "Popen", popen)
     monkeypatch.setattr(client.time, "sleep", lambda _: None)
 
@@ -434,7 +456,6 @@ def test_service_starts_detached_and_waits_for_health(
     )
 
     assert result["status"] == "ok"
-    assert configured == [("http://127.0.0.1:9876", idle_timeout)]
     assert message in capsys.readouterr().err
     expected_command = [
         captured["command"][0],
@@ -456,6 +477,8 @@ def test_service_starts_detached_and_waits_for_health(
     assert captured["options"]["stdin"] is subprocess.DEVNULL
     assert captured["options"]["stdout"] is subprocess.DEVNULL
     assert captured["options"]["stderr"] is subprocess.DEVNULL
+    assert captured["options"]["creationflags"] == 123
+    assert "start_new_session" not in captured["options"]
 
 
 def test_failed_service_startup_terminates_the_detached_process(tmp_path, monkeypatch):

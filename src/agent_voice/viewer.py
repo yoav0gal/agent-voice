@@ -85,10 +85,7 @@ def ensure_viewer(recordings_dir: Path | None = None) -> Viewer:
             stderr=subprocess.DEVNULL,
             close_fds=True,
             **(
-                {
-                    "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP
-                    | subprocess.DETACHED_PROCESS
-                }
+                {"creationflags": subprocess.CREATE_NO_WINDOW}
                 if os.name == "nt"
                 else {"start_new_session": True}
             ),

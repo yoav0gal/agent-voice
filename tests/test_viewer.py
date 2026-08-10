@@ -594,3 +594,35 @@ def test_dynamic_viewer_process_start_status_and_stop(tmp_path, monkeypatch):
         stopped = stop_viewer()
 
     assert stopped.running is False
+
+
+def test_viewer_starts_without_a_window_on_windows(tmp_path, monkeypatch):
+    recordings = tmp_path / "recordings"
+    viewer = Viewer(recordings.resolve(), 8779, 123)
+    running = iter((None, None, viewer))
+    captured = {}
+
+    class Process:
+        def poll(self):
+            return None
+
+    def popen(command, **options):
+        captured["options"] = options
+        return Process()
+
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(viewer_module, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        viewer_module.subprocess, "CREATE_NO_WINDOW", 123, raising=False
+    )
+    monkeypatch.setattr(viewer_module, "_state", lambda: {})
+    monkeypatch.setattr(
+        viewer_module,
+        "_running",
+        lambda *_args, **_kwargs: next(running),
+    )
+    monkeypatch.setattr(viewer_module.subprocess, "Popen", popen)
+
+    assert ensure_viewer(recordings) == viewer
+    assert captured["options"]["creationflags"] == 123
+    assert "start_new_session" not in captured["options"]

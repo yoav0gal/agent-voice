@@ -95,9 +95,7 @@ def ensure_service(
             except ServiceUnavailable:
                 pass
             else:
-                matched = _require_matching_model(health, selection)
-                _configure_service_lifecycle(url, idle_timeout_minutes)
-                return matched
+                return _require_matching_model(health, selection)
 
             lifecycle = (
                 "no idle timeout"
@@ -128,9 +126,7 @@ def ensure_service(
                 "close_fds": True,
             }
             if os.name == "nt":
-                options["creationflags"] = (
-                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-                )
+                options["creationflags"] = subprocess.CREATE_NO_WINDOW
             else:
                 options["start_new_session"] = True
             process = subprocess.Popen(command, **options)
@@ -151,7 +147,6 @@ def ensure_service(
                         time.sleep(0.05)
                     else:
                         matched = _require_matching_model(health, selection)
-                        _configure_service_lifecycle(url, idle_timeout_minutes)
                         ready = True
                         return matched
                 raise ServiceUnavailable(f"service did not become ready: {last_error}")
@@ -223,9 +218,44 @@ def request_speech(
     )
 
 
-def _configure_service_lifecycle(
-    service_url: str, idle_timeout_minutes: float | None
-) -> None:
+def stop_service(service_url: str, timeout: float = 2.0) -> bool:
+    url = validate_service_url(service_url)
+    try:
+        health_check(url, timeout=0.2)
+    except ServiceUnavailable:
+        return False
+
+    request = urllib.request.Request(
+        url + "/shutdown",
+        data=b"{}",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read())
+    except (
+        OSError,
+        TimeoutError,
+        socket.timeout,
+        urllib.error.URLError,
+        json.JSONDecodeError,
+    ) as error:
+        raise ServiceUnavailable(f"could not stop service: {error}") from error
+    if not isinstance(payload, dict) or payload.get("status") != "stopping":
+        raise ServiceUnavailable("service shutdown returned an invalid response")
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            health_check(url, timeout=0.2)
+        except ServiceUnavailable:
+            return True
+        time.sleep(0.05)
+    raise ServiceUnavailable("service did not stop")
+
+
+def set_service_timeout(service_url: str, idle_timeout_minutes: float) -> None:
     url = validate_service_url(service_url) + "/lifecycle"
     body = json.dumps({"idle_timeout_minutes": idle_timeout_minutes}).encode()
     request = urllib.request.Request(

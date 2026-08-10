@@ -137,6 +137,7 @@ The CLI provides small primitives that agents can combine. Run
 | `models` | List speech models and variants. |
 | `config` | View or change persistent defaults. |
 | `doctor` | Check that Agent Voice is ready. |
+| `service start\|stop` | Manage the background speech service. |
 | `viewer start\|stop` | Manage the local recording viewer. |
 | `controls install\|uninstall` | Install or remove the experimental desktop protocol handler. |
 | `serve` | Start the localhost speech API. |
@@ -176,8 +177,7 @@ agent-voice speak "Here is your summary." \
 | `--speed NUMBER` | Set pitch-preserving playback speed. |
 | `--play` | Play the recording after creation. |
 | `--controls` | Include experimental desktop playback control links. |
-| `--service on\|off\|timed` | Control background inference. |
-| `--service-timeout MINUTES` | Set the idle timeout for timed mode. |
+| `--no-service` | Run the same Agent Voice model inside this command, then unload it. |
 | `--model-id ID`, `--variant NAME` | Select a model and build. |
 
 `speak` prints one JSON receipt with the absolute recording path, file URI,
@@ -190,16 +190,33 @@ command reliable for both people and agents.
 # Show current defaults
 agent-voice config
 
-# Set your preferred voice, speed, format, and output directory
-agent-voice config --voice bf_emma --speed 1.15 --format mp3 --output-dir ./recordings
+# Set your preferred voice, speed, format, service timeout, and output directory
+agent-voice config --voice bf_emma --speed 1.15 --format mp3 \
+  --service-timeout 10 --output-dir ./recordings
 
 # Restore built-in defaults
 agent-voice config --reset
 ```
 
-The same values can be overridden per recording with `speak`. Service modes are
-`on` for a persistent local service, `off` for embedded inference, and `timed`
-to stop the service after an idle timeout.
+Voice, speed, format, and output directory can be overridden per recording with
+`speak`.
+
+### Manage the Agent Voice service
+
+By default, `speak` starts the Agent Voice background service when needed. Once
+the model weights are loaded, the service keeps them warm between requests to
+avoid another cold startup. It stops after 10 idle minutes by default, and each
+completed speech request restarts that timer. Automatic startup reuses a running
+service without changing its timeout; `service start` uses the saved timeout or
+an explicit `--idle-timeout` value.
+
+```sh
+agent-voice service start                    # stops after 10 idle minutes
+agent-voice service start --idle-timeout 30  # set this process to 30 minutes
+agent-voice service stop
+```
+
+Use `agent-voice serve` for a foreground service while debugging.
 
 ### Discover and diagnose
 

@@ -6,7 +6,7 @@ from datetime import datetime
 import pytest
 
 from agent_voice.client import ServiceUnavailable
-from agent_voice.config import ServiceDefaults, SpeechDefaults, update_defaults
+from agent_voice.config import SpeechDefaults, update_defaults
 from agent_voice.delivery import Delivery
 from agent_voice.model import ModelSelection, Recording
 from agent_voice.speaking import SpeakReceipt, SpeakRequest, Speaker
@@ -91,10 +91,7 @@ def make_speaker(
     notices: list[str] | None = None,
     now=None,
 ):
-    selected_defaults = defaults or SpeechDefaults(
-        service=ServiceDefaults("off", None),
-        output_dir=str(tmp_path),
-    )
+    selected_defaults = defaults or SpeechDefaults(output_dir=str(tmp_path))
     return Speaker(
         defaults_loader=lambda: selected_defaults,
         embedded=embedded or FakeGenerator(backend="local"),
@@ -106,14 +103,14 @@ def make_speaker(
     )
 
 
-def test_service_off_uses_embedded_generation(tmp_path):
+def test_no_service_uses_embedded_generation(tmp_path):
     embedded = FakeGenerator(backend="local")
     service = FakeGenerator(backend="service")
     receipt = make_speaker(
         tmp_path,
         embedded=embedded,
         service=service,
-    ).speak(SpeakRequest("Visible text.", SELECTION, service="off"))
+    ).speak(SpeakRequest("Visible text.", SELECTION, no_service=True))
 
     assert receipt.recording.backend == "local"
     assert receipt.recording.path.read_bytes() == b"recording"
@@ -122,10 +119,10 @@ def test_service_off_uses_embedded_generation(tmp_path):
     assert receipt.service_fallback is False
 
 
-def test_service_generation_uses_resolved_timed_policy(tmp_path):
+def test_service_generation_uses_configured_timeout(tmp_path):
     service = FakeGenerator(backend="service", audio=b"service")
     defaults = SpeechDefaults(
-        service=ServiceDefaults("timed", 2.5),
+        service_timeout_minutes=2.5,
         output_dir=str(tmp_path),
     )
 
@@ -137,18 +134,8 @@ def test_service_generation_uses_resolved_timed_policy(tmp_path):
 
     assert receipt.recording.backend == "service"
     assert receipt.recording.path.read_bytes() == b"service"
-    assert service.requests[0].service == "timed"
+    assert service.requests[0].no_service is False
     assert service.requests[0].service_timeout_minutes == 2.5
-
-
-def test_on_service_uses_no_idle_timeout(tmp_path):
-    service = FakeGenerator(backend="service")
-
-    make_speaker(tmp_path, service=service).speak(
-        SpeakRequest("Visible text.", SELECTION, service="on")
-    )
-
-    assert service.requests[0].service_timeout_minutes is None
 
 
 def test_unavailable_service_falls_back_to_embedded(tmp_path):
@@ -164,7 +151,7 @@ def test_unavailable_service_falls_back_to_embedded(tmp_path):
         embedded=embedded,
         service=service,
         notices=notices,
-    ).speak(SpeakRequest("Visible text.", SELECTION, service="timed"))
+    ).speak(SpeakRequest("Visible text.", SELECTION))
 
     assert receipt.recording.backend == "local"
     assert receipt.service_fallback is True
@@ -183,7 +170,7 @@ def test_non_availability_service_errors_do_not_fallback(tmp_path):
             tmp_path,
             embedded=embedded,
             service=service,
-        ).speak(SpeakRequest("Visible text.", SELECTION, service="on"))
+        ).speak(SpeakRequest("Visible text.", SELECTION))
 
     assert embedded.requests == []
 
@@ -194,7 +181,6 @@ def test_saved_defaults_and_request_values_resolve_once(tmp_path):
         voice="bf_emma",
         speed=1.15,
         format="opus",
-        service=ServiceDefaults("off", None),
         output_dir=str(tmp_path),
     )
 
@@ -202,7 +188,7 @@ def test_saved_defaults_and_request_values_resolve_once(tmp_path):
         tmp_path,
         defaults=defaults,
         embedded=embedded,
-    ).speak(SpeakRequest("Visible text.", SELECTION))
+    ).speak(SpeakRequest("Visible text.", SELECTION, no_service=True))
 
     resolved = embedded.requests[0]
     assert (resolved.voice, resolved.speed) == ("bf_emma", 1.15)
@@ -216,7 +202,6 @@ def test_request_values_override_saved_defaults(tmp_path):
         voice="af_heart",
         speed=1.0,
         format="mp3",
-        service=ServiceDefaults("timed", 10),
         output_dir=str(tmp_path / "configured"),
     )
     command_line = tmp_path / "command-line"
@@ -233,15 +218,15 @@ def test_request_values_override_saved_defaults(tmp_path):
             format="wav",
             voice="bf_emma",
             speed=1.25,
-            service="off",
+            no_service=True,
         )
     )
 
     resolved = embedded.requests[0]
-    assert (resolved.voice, resolved.speed, resolved.service) == (
+    assert (resolved.voice, resolved.speed, resolved.no_service) == (
         "bf_emma",
         1.25,
-        "off",
+        True,
     )
     assert receipt.recording.path.parent == command_line
     assert receipt.recording.path.suffix == ".wav"
@@ -253,7 +238,6 @@ def test_environment_recording_root_overrides_config(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_VOICE_RECORDING_DIR", str(environment))
     calls = []
     defaults = SpeechDefaults(
-        service=ServiceDefaults("off", None),
         output_dir=str(configured),
     )
 
@@ -261,7 +245,7 @@ def test_environment_recording_root_overrides_config(tmp_path, monkeypatch):
         tmp_path,
         defaults=defaults,
         delivery=delivery_success(calls),
-    ).speak(SpeakRequest("Visible text.", SELECTION))
+    ).speak(SpeakRequest("Visible text.", SELECTION, no_service=True))
 
     assert receipt.recording.path.parent == environment
     assert calls[0][5] == environment
@@ -278,7 +262,6 @@ def test_live_config_cli_and_environment_precedence(tmp_path, monkeypatch):
         voice="bf_emma",
         speed=1.15,
         format="opus",
-        service_mode="off",
         output_dir=configured,
     )
     monkeypatch.setenv("AGENT_VOICE_RECORDING_DIR", str(environment))
@@ -297,7 +280,7 @@ def test_live_config_cli_and_environment_precedence(tmp_path, monkeypatch):
             output_dir=command_line,
             format="wav",
             voice="af_nova",
-            service="off",
+            no_service=True,
         )
     )
 
@@ -321,7 +304,7 @@ def test_exact_output_takes_precedence_and_extension_selects_format(tmp_path):
             label="ignored",
             output_dir=ignored,
             format="mp3",
-            service="off",
+            no_service=True,
         )
     )
 
@@ -343,7 +326,7 @@ def test_extensionless_exact_output_uses_selected_format(tmp_path):
             SELECTION,
             output=output,
             format="m4a",
-            service="off",
+            no_service=True,
         )
     )
 
@@ -358,7 +341,7 @@ def test_managed_output_supports_each_public_format(tmp_path, audio_format):
             "Visible text.",
             SELECTION,
             format=audio_format,
-            service="off",
+            no_service=True,
         )
     )
 
@@ -375,7 +358,7 @@ def test_managed_output_uses_portable_label_and_collision_suffix(tmp_path):
             "Visible text.",
             SELECTION,
             label="Daily update!",
-            service="off",
+            no_service=True,
         )
     )
 
@@ -387,7 +370,9 @@ def test_managed_reservations_are_unique_across_speakers(tmp_path):
     def speak(_index):
         return (
             make_speaker(tmp_path)
-            .speak(SpeakRequest("Visible text.", SELECTION, label="SR", service="off"))
+            .speak(
+                SpeakRequest("Visible text.", SELECTION, label="SR", no_service=True)
+            )
             .recording.path
         )
 
@@ -403,7 +388,7 @@ def test_failed_managed_generation_removes_reservation(tmp_path):
 
     with pytest.raises(RuntimeError, match="failed"):
         make_speaker(tmp_path, embedded=embedded).speak(
-            SpeakRequest("Visible text.", SELECTION, label="SR", service="off")
+            SpeakRequest("Visible text.", SELECTION, label="SR", no_service=True)
         )
 
     assert list(tmp_path.iterdir()) == []
@@ -420,7 +405,7 @@ def test_failed_exact_generation_preserves_existing_destination(tmp_path):
                 "Visible text.",
                 SELECTION,
                 output=output,
-                service="off",
+                no_service=True,
             )
         )
 
@@ -462,7 +447,7 @@ def test_backend_must_honor_the_single_output_plan(
         make_speaker(
             tmp_path,
             embedded=DriftingGenerator(backend="local"),
-        ).speak(SpeakRequest("Visible text.", SELECTION, service="off"))
+        ).speak(SpeakRequest("Visible text.", SELECTION, no_service=True))
 
     assert list(tmp_path.iterdir()) == []
 
@@ -474,7 +459,7 @@ def test_played_becomes_true_only_after_playback_returns(tmp_path):
         events.append(path)
 
     receipt = make_speaker(tmp_path, playback=playback).speak(
-        SpeakRequest("Visible text.", SELECTION, play=True, service="off")
+        SpeakRequest("Visible text.", SELECTION, play=True, no_service=True)
     )
 
     assert events == [receipt.recording.path]
@@ -487,7 +472,7 @@ def test_playback_failure_does_not_produce_a_truthful_receipt(tmp_path):
 
     with pytest.raises(RuntimeError, match="no audio device"):
         make_speaker(tmp_path, playback=fail).speak(
-            SpeakRequest("Visible text.", SELECTION, play=True, service="off")
+            SpeakRequest("Visible text.", SELECTION, play=True, no_service=True)
         )
 
 
@@ -496,7 +481,6 @@ def test_delivery_receives_the_planned_recording_root(tmp_path):
     recording_root = tmp_path / "managed"
     output = tmp_path / "external" / "response.mp3"
     defaults = SpeechDefaults(
-        service=ServiceDefaults("off", None),
         output_dir=str(recording_root),
     )
 
@@ -509,7 +493,7 @@ def test_delivery_receives_the_planned_recording_root(tmp_path):
             "Visible text.",
             SELECTION,
             output=output,
-            service="off",
+            no_service=True,
         )
     )
 
@@ -537,7 +521,7 @@ def test_delivery_prefers_the_written_response(tmp_path):
             response_markdown="# Written response",
             language="he-il",
             controls=True,
-            service="off",
+            no_service=True,
         )
     )
 
@@ -566,7 +550,7 @@ def test_delivery_failure_facts_are_typed_serialized_and_reported(tmp_path):
         tmp_path,
         delivery=fallback,
         notices=notices,
-    ).speak(SpeakRequest("Visible text.", SELECTION, service="off"))
+    ).speak(SpeakRequest("Visible text.", SELECTION, no_service=True))
 
     assert receipt.to_dict()["delivery"] == {}
     assert notices == ["Warning: viewer unavailable"]
@@ -621,30 +605,14 @@ def test_receipt_serialization_preserves_public_json_shape(tmp_path):
     }
 
 
-def test_service_timeout_requires_timed_mode(tmp_path):
-    with pytest.raises(ValueError, match="can only be used"):
-        make_speaker(tmp_path).speak(
-            SpeakRequest(
-                "Visible text.",
-                SELECTION,
-                service="on",
-                service_timeout_minutes=2.5,
-            )
-        )
-
-
-def test_public_interface_rejects_unknown_service_or_format(tmp_path):
-    with pytest.raises(ValueError, match="Service mode"):
-        make_speaker(tmp_path).speak(
-            SpeakRequest("Visible text.", SELECTION, service="sometimes")
-        )
+def test_public_interface_rejects_unknown_format(tmp_path):
     with pytest.raises(ValueError, match="Output format"):
         make_speaker(tmp_path).speak(
             SpeakRequest(
                 "Visible text.",
                 SELECTION,
                 format="flac",
-                service="off",
+                no_service=True,
             )
         )
 
@@ -659,7 +627,7 @@ def test_public_interface_rejects_unknown_service_or_format(tmp_path):
 )
 def test_managed_label_is_portable_and_bounded(tmp_path, label, expected):
     receipt = make_speaker(tmp_path).speak(
-        SpeakRequest("Visible text.", SELECTION, label=label, service="off")
+        SpeakRequest("Visible text.", SELECTION, label=label, no_service=True)
     )
 
     assert receipt.recording.path.name.startswith(f"{expected}-")
@@ -668,5 +636,5 @@ def test_managed_label_is_portable_and_bounded(tmp_path, label, expected):
 def test_managed_label_rejects_values_without_ascii_letters_or_numbers(tmp_path):
     with pytest.raises(ValueError, match="at least one ASCII"):
         make_speaker(tmp_path).speak(
-            SpeakRequest("Visible text.", SELECTION, label="🎙️ ---", service="off")
+            SpeakRequest("Visible text.", SELECTION, label="🎙️ ---", no_service=True)
         )

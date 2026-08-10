@@ -9,15 +9,19 @@ from pathlib import Path
 
 from . import __version__
 from .audio import play_audio
-from .client import DEFAULT_SERVICE_URL
+from .client import (
+    DEFAULT_SERVICE_URL,
+    ensure_service,
+    set_service_timeout,
+    stop_service,
+    validate_service_url,
+)
 from .config import (
     DEFAULT_FORMAT,
-    DEFAULT_SERVICE,
     DEFAULT_SERVICE_TIMEOUT_MINUTES,
     FORMATS,
     MAX_SPEED,
     MIN_SPEED,
-    SERVICE_MODES,
     config_path,
     load_defaults,
     reset_defaults,
@@ -122,19 +126,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_model_arguments(speak)
     speak.add_argument(
-        "--service",
-        choices=SERVICE_MODES,
-        help=(
-            "service mode (default: configured mode); on leaves the localhost "
-            "service running, off uses embedded inference, and timed stops the "
-            "service after an idle timeout"
-        ),
-    )
-    speak.add_argument(
-        "--service-timeout",
-        type=_positive_minutes,
-        metavar="MINUTES",
-        help="idle minutes in timed service mode (default: configured timeout)",
+        "--no-service",
+        action="store_true",
+        help="run the Agent Voice model in this command, then unload it",
     )
     speak.add_argument(
         "--service-url",
@@ -176,17 +170,11 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"set the default output format (default: {DEFAULT_FORMAT})",
     )
     config.add_argument(
-        "--service",
-        choices=SERVICE_MODES,
-        default=argparse.SUPPRESS,
-        help=f"set the default service mode (default: {DEFAULT_SERVICE})",
-    )
-    config.add_argument(
         "--service-timeout",
         type=_positive_minutes,
         default=argparse.SUPPRESS,
         metavar="MINUTES",
-        help=f"set the timed mode idle timeout (default: {DEFAULT_SERVICE_TIMEOUT_MINUTES:g})",
+        help=f"set the service idle timeout (default: {DEFAULT_SERVICE_TIMEOUT_MINUTES:g})",
     )
     config.add_argument(
         "--output-dir",
@@ -221,6 +209,41 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="MINUTES",
         help="exit after this many idle minutes; omit to keep serving",
     )
+
+    service = subparsers.add_parser(
+        "service",
+        help="manage the background speech service",
+        description="Start or stop the localhost speech service.",
+    )
+    service_actions = service.add_subparsers(dest="service_action", required=True)
+    service_start = service_actions.add_parser(
+        "start", help="start the timed background service"
+    )
+    _add_model_arguments(service_start)
+    service_start.add_argument(
+        "--idle-timeout",
+        type=_positive_minutes,
+        metavar="MINUTES",
+        help=(
+            "stop after this many idle minutes (default: configured value; "
+            f"built-in {DEFAULT_SERVICE_TIMEOUT_MINUTES:g})"
+        ),
+    )
+    service_stop = service_actions.add_parser(
+        "stop", help="stop the background service"
+    )
+    for action in (service_start, service_stop):
+        action.add_argument(
+            "--service-url",
+            default=default_service_url,
+            help=f"localhost service base URL (default: {default_service_url})",
+        )
+        action.add_argument(
+            "--json",
+            action="store_true",
+            help="print one machine-readable service report",
+        )
+
     doctor = subparsers.add_parser(
         "doctor",
         help="check local readiness",
@@ -318,6 +341,8 @@ def main(argv: list[str] | None = None) -> None:
             _models(args)
         elif args.command == "config":
             _config(args)
+        elif args.command == "service":
+            _service(args)
         elif args.command == "serve":
             from .service import serve
 
@@ -456,8 +481,7 @@ def _speak(args: argparse.Namespace) -> None:
             speed=args.speed,
             language=args.lang,
             play=args.play,
-            service=args.service,
-            service_timeout_minutes=args.service_timeout,
+            no_service=args.no_service,
             service_url=args.service_url,
             controls=args.controls,
         )
@@ -482,8 +506,6 @@ def _config(args: argparse.Namespace) -> None:
         updates["speed"] = args.speed
     if hasattr(args, "format"):
         updates["format"] = args.format
-    if hasattr(args, "service"):
-        updates["service_mode"] = args.service
     if hasattr(args, "service_timeout"):
         updates["service_timeout_minutes"] = args.service_timeout
     if hasattr(args, "output_dir"):
@@ -492,7 +514,7 @@ def _config(args: argparse.Namespace) -> None:
     if args.reset and updates:
         raise ValueError(
             "--reset cannot be combined with --voice, --speed, --format, "
-            "--service, --service-timeout, or --output-dir"
+            "--service-timeout, or --output-dir"
         )
     if args.reset:
         defaults = reset_defaults()
@@ -512,9 +534,7 @@ def _config(args: argparse.Namespace) -> None:
         print(f"Voice: {defaults.voice}")
         print(f"Speed: {defaults.speed:g}")
         print(f"Format: {defaults.format}")
-        print(f"Service mode: {defaults.service.mode}")
-        if defaults.service.timeout_minutes is not None:
-            print(f"Service timeout: {defaults.service.timeout_minutes:g} minutes")
+        print(f"Service timeout: {defaults.service_timeout_minutes:g} minutes")
         print(f"Output directory: {defaults.output_dir or 'default'}")
         print(f"Source: {payload['source']}")
         print(f"Config: {payload['path']}")
@@ -590,6 +610,34 @@ def _viewer(args: argparse.Namespace) -> None:
         print(f"Recordings: {report.recordings_dir}")
     else:
         print("Recording viewer: stopped")
+
+
+def _service(args: argparse.Namespace) -> None:
+    url = validate_service_url(args.service_url)
+    if args.service_action == "stop":
+        stopped = stop_service(url)
+        report = {"running": False, "stopped": stopped, "url": url}
+    else:
+        timeout = (
+            load_defaults().service_timeout_minutes
+            if args.idle_timeout is None
+            else args.idle_timeout
+        )
+        health = ensure_service(url, _model_selection(args), timeout)
+        set_service_timeout(url, timeout)
+        report = {
+            **health,
+            "running": True,
+            "url": url,
+            "service_timeout_minutes": timeout,
+        }
+
+    if args.json:
+        print(json.dumps(report))
+    elif report["running"]:
+        print(f"Speech service: {url}")
+    else:
+        print(f"Speech service: {'stopped' if stopped else 'not running'}")
 
 
 def _controls(args: argparse.Namespace) -> None:

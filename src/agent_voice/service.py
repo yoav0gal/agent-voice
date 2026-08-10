@@ -86,9 +86,6 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
                     "model_id": descriptor.selection.model_id,
                     "variant": descriptor.selection.variant,
                     "ready": True,
-                    "service_mode": (
-                        "timed" if idle_timeout_minutes is not None else "on"
-                    ),
                     "service_timeout_minutes": idle_timeout_minutes,
                 },
             )
@@ -101,6 +98,14 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._host_is_local():
             self._json(403, {"error": "Host must be localhost"})
+            return
+        if self.path == "/shutdown":
+            server = self.server
+            if not isinstance(server, IdleHTTPServer):
+                self._json(400, {"error": "Service shutdown is unavailable"})
+                return
+            self._json(200, {"status": "stopping"})
+            server.request_stop()
             return
         if self.path == "/lifecycle":
             try:
@@ -117,9 +122,6 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
                     200,
                     {
                         "status": "ok",
-                        "service_mode": (
-                            "timed" if server.idle_timeout_seconds is not None else "on"
-                        ),
                         "service_timeout_minutes": (
                             None
                             if server.idle_timeout_seconds is None
@@ -236,6 +238,7 @@ class IdleHTTPServer(ThreadingHTTPServer):
         self.last_request_completed = time.monotonic()
         self._active_requests = 0
         self._activity_lock = threading.Lock()
+        self._stop_requested = threading.Event()
 
     def process_request(
         self, request: socket.socket, client_address: tuple[str, int]
@@ -269,7 +272,7 @@ class IdleHTTPServer(ThreadingHTTPServer):
             self.idle_timeout_seconds = value * 60
 
     def serve_until_idle(self) -> None:
-        while True:
+        while not self._stop_requested.is_set():
             idle_timeout, active_requests, last_completed = self._activity_snapshot()
             if idle_timeout is None or active_requests:
                 self.timeout = 0.5
@@ -279,6 +282,9 @@ class IdleHTTPServer(ThreadingHTTPServer):
                     return
                 self.timeout = min(0.5, remaining)
             self.handle_request()
+
+    def request_stop(self) -> None:
+        self._stop_requested.set()
 
     def _mark_request_started(self) -> None:
         with self._activity_lock:
