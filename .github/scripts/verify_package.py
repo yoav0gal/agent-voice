@@ -143,7 +143,7 @@ def main() -> None:
         str(local_wav),
     )
     assert local["backend"] == "local"
-    assert local["played"] is False
+    assert "playback" not in local
     validate_wav(local_wav)
 
     labeled = run_cli(
@@ -211,7 +211,7 @@ def main() -> None:
                 str(service_wav),
             )
             assert remote["backend"] == "service"
-            assert remote["played"] is False
+            assert "playback" not in remote
             validate_wav(service_wav)
         finally:
             service.terminate()
