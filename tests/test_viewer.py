@@ -203,6 +203,40 @@ def test_recording_control_url_toggles_one_nonblocking_player(tmp_path, monkeypa
     ]
 
 
+def test_viewer_starts_or_schedules_local_playback(tmp_path, monkeypatch):
+    recording = tmp_path / "sample.mp3"
+    recording.write_bytes(b"audio")
+    calls = []
+
+    class Playback:
+        def control(self, path, action):
+            calls.append((path, action))
+            return SimpleNamespace(to_dict=lambda: {"playing": True})
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(viewer_server, "PlaybackController", Playback)
+    with _running_viewer(tmp_path) as (_, url):
+        headers = {"X-Agent-Voice-Playback": "1"}
+        request = urllib.request.Request(
+            f"{url}/play/sample.mp3", headers=headers, method="POST"
+        )
+        with urllib.request.urlopen(request) as response:
+            assert json.loads(response.read()) == {"state": "started", "playing": True}
+
+        request = urllib.request.Request(
+            f"{url}/play/sample.mp3?after=60", headers=headers, method="POST"
+        )
+        with urllib.request.urlopen(request) as response:
+            assert json.loads(response.read()) == {
+                "state": "scheduled",
+                "starts_in_seconds": 60.0,
+            }
+
+    assert calls == [(recording.resolve(), "toggle")]
+
+
 def test_rejected_control_probe_does_not_regenerate_missing_audio(
     tmp_path, monkeypatch
 ):

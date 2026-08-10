@@ -30,7 +30,7 @@ _CONTROL_DIRECTORY = "controls"
 _RECORDING_RETENTION_SECONDS = (4 * 24 + 18) * 60 * 60
 _STARTUP_TIMEOUT_SECONDS = 15.0
 _STARTUP_HEALTH_TIMEOUT_SECONDS = 1.0
-VIEWER_PROTOCOL = 8
+VIEWER_PROTOCOL = 9
 _CONTROL_TOKEN = re.compile(r"[A-Za-z0-9_-]{24}")
 
 
@@ -311,6 +311,35 @@ def valid_control_token(token: str) -> bool:
 
 def active_viewer() -> Viewer | None:
     return _running(_state())
+
+
+def start_playback(recording: Path, *, after: float | None = None) -> dict[str, object]:
+    """Ask the persistent local viewer to start one recording."""
+    path = recording.expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"Recording not found: {path}")
+    if after is not None and after < 0:
+        raise ValueError("Playback delay must not be negative")
+    viewer = ensure_viewer(path.parent)
+    if viewer.url is None:
+        raise RuntimeError("Recording viewer is not running")
+    delay = "" if after is None else f"?after={after:g}"
+    request = urllib.request.Request(
+        f"{viewer.url}/play/{quote(path.name, safe='')}{delay}",
+        headers={"X-Agent-Voice-Playback": "1"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            result = json.loads(response.read())
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        raise RuntimeError("Playback could not be started") from error
+    if not isinstance(result, dict) or result.get("state") not in {
+        "started",
+        "scheduled",
+    }:
+        raise RuntimeError("Playback returned an invalid response")
+    return result
 
 
 def _state() -> dict[str, object]:

@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .audio import play_audio
 from .client import (
     DEFAULT_SERVICE_URL,
     ensure_service,
@@ -32,7 +31,7 @@ from .paths import resolved_recording_dir
 from .registry import MODEL_REGISTRY
 from .speaking import SpeakRequest, Speaker
 from .updates import notify_if_update_available, run_update
-from .viewer import ensure_viewer, stop_viewer
+from .viewer import ensure_viewer, start_playback, stop_viewer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  printf '%s' \"$TEXT\" | agent-voice speak --format mp3\n"
             '  agent-voice play "/path/to/recording.mp3"\n'
             "  agent-voice doctor --json\n\n"
-            "Agent speech: read the JSON path; only report playback when played=true."
+            "Agent speech: use playback.state; started and scheduled do not mean finished."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -115,9 +114,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     speak.add_argument("--lang", default="en-us", help="language tag (default: en-us)")
     speak.add_argument(
+        "-p",
         "--play",
-        action="store_true",
-        help="play after generating; successful JSON reports played=true",
+        dest="play_after",
+        action="store_const",
+        const=0.0,
+        help="start local playback after generating without waiting for completion",
+    )
+    speak.add_argument(
+        "--play-after",
+        type=_nonnegative_seconds,
+        metavar="SECONDS",
+        help="schedule local playback after generating without waiting",
     )
     speak.add_argument(
         "--controls",
@@ -269,9 +277,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     play.add_argument("recording", type=Path, help="local audio recording")
     play.add_argument(
+        "--after",
+        type=_nonnegative_seconds,
+        metavar="SECONDS",
+        help="schedule playback without waiting",
+    )
+    play.add_argument(
         "--json",
         action="store_true",
-        help="print a receipt after playback completes",
+        help="print a receipt after playback starts or is scheduled",
     )
 
     viewer = subparsers.add_parser(
@@ -480,7 +494,7 @@ def _speak(args: argparse.Namespace) -> None:
             voice=args.voice,
             speed=args.speed,
             language=args.lang,
-            play=args.play,
+            play_after=args.play_after,
             no_service=args.no_service,
             service_url=args.service_url,
             controls=args.controls,
@@ -552,16 +566,11 @@ def _play(args: argparse.Namespace) -> None:
         raise FileNotFoundError(f"Recording not found: {path}")
     if path.suffix.lower().lstrip(".") not in FORMATS:
         raise ValueError(f"Recording must use one of: {', '.join(FORMATS)}")
-    try:
-        play_audio(path)
-    except KeyboardInterrupt:
-        print("Playback stopped", file=sys.stderr)
-        raise SystemExit(130) from None
-    receipt = {"path": str(path), "played": True}
+    receipt = {"path": str(path), **start_playback(path, after=args.after)}
     if args.json:
         print(json.dumps(receipt))
     else:
-        print(f"Played {path}")
+        print(f"Playback {receipt['state']}: {path}")
 
 
 def _positive_minutes(value: str) -> float:
@@ -574,6 +583,20 @@ def _positive_minutes(value: str) -> float:
     if not math.isfinite(minutes) or minutes <= 0:
         raise argparse.ArgumentTypeError("must be a finite number greater than zero")
     return minutes
+
+
+def _nonnegative_seconds(value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "must be a non-negative number of seconds"
+        ) from error
+    if not math.isfinite(seconds) or seconds < 0:
+        raise argparse.ArgumentTypeError(
+            "must be a finite non-negative number of seconds"
+        )
+    return seconds
 
 
 def _port(value: str) -> int:

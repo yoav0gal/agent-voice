@@ -96,7 +96,7 @@ def make_speaker(
         defaults_loader=lambda: selected_defaults,
         embedded=embedded or FakeGenerator(backend="local"),
         service=service or FakeGenerator(backend="service"),
-        playback=playback or (lambda _path: None),
+        playback=playback or (lambda _path, _delay: {"state": "started"}),
         delivery=delivery or delivery_success(),
         notice=(notices.append if notices is not None else lambda _message: None),
         now=now or (lambda: datetime(2026, 7, 26, 10, 13)),
@@ -452,27 +452,33 @@ def test_backend_must_honor_the_single_output_plan(
     assert list(tmp_path.iterdir()) == []
 
 
-def test_played_becomes_true_only_after_playback_returns(tmp_path):
+def test_playback_starts_after_delivery_without_waiting(tmp_path):
     events = []
 
-    def playback(path):
-        events.append(path)
+    def playback(path, delay):
+        events.append((path, delay))
+        return {"state": "scheduled", "starts_in_seconds": delay}
 
     receipt = make_speaker(tmp_path, playback=playback).speak(
-        SpeakRequest("Visible text.", SELECTION, play=True, no_service=True)
+        SpeakRequest(
+            "Visible text.",
+            SELECTION,
+            play_after=10,
+            no_service=True,
+        )
     )
 
-    assert events == [receipt.recording.path]
-    assert receipt.played is True
+    assert events == [(receipt.delivery.recording_path, 10)]
+    assert receipt.playback == {"state": "scheduled", "starts_in_seconds": 10}
 
 
-def test_playback_failure_does_not_produce_a_truthful_receipt(tmp_path):
-    def fail(_path):
+def test_playback_start_failure_does_not_produce_a_receipt(tmp_path):
+    def fail(_path, _delay):
         raise RuntimeError("no audio device")
 
     with pytest.raises(RuntimeError, match="no audio device"):
         make_speaker(tmp_path, playback=fail).speak(
-            SpeakRequest("Visible text.", SELECTION, play=True, no_service=True)
+            SpeakRequest("Visible text.", SELECTION, play_after=0, no_service=True)
         )
 
 
@@ -577,8 +583,8 @@ def test_receipt_serialization_preserves_public_json_shape(tmp_path):
     receipt = SpeakReceipt(
         recording=recording,
         selection=ModelSelection("kokoro", "fp16"),
-        played=False,
         delivery=delivery,
+        playback={"state": "started", "playing": True},
         service_fallback=True,
     )
 
@@ -593,7 +599,7 @@ def test_receipt_serialization_preserves_public_json_shape(tmp_path):
         "backend": "service",
         "model_id": "kokoro",
         "variant": "fp16",
-        "played": False,
+        "playback": {"state": "started", "playing": True},
         "service_fallback": True,
         "file_uri": recording.path.as_uri(),
         "delivery": {

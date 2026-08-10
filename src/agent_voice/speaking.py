@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from .audio import play_audio, write_audio
+from .audio import write_audio
 from .client import (
     DEFAULT_SERVICE_URL,
     ServiceUnavailable,
@@ -27,6 +27,7 @@ from .model import (
 )
 from .paths import resolved_recording_dir
 from .registry import MODEL_REGISTRY
+from .viewer import start_playback
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,7 @@ class SpeakRequest:
     voice: str | None = None
     speed: float | None = None
     language: str = "en-us"
-    play: bool = False
+    play_after: float | None = None
     no_service: bool = False
     service_url: str = DEFAULT_SERVICE_URL
     response_markdown: str | None = None
@@ -51,15 +52,16 @@ class SpeakRequest:
 class SpeakReceipt:
     recording: Recording
     selection: ModelSelection
-    played: bool
     delivery: Delivery
+    playback: dict[str, object] | None = None
     service_fallback: bool = False
 
     def to_dict(self) -> dict[str, object]:
         payload = self.recording.to_dict()
         payload["model_id"] = self.selection.model_id
         payload["variant"] = self.selection.variant
-        payload["played"] = self.played
+        if self.playback is not None:
+            payload["playback"] = self.playback
         if self.service_fallback:
             payload["service_fallback"] = True
         payload["file_uri"] = self.recording.path.resolve().as_uri()
@@ -95,7 +97,7 @@ class _ResolvedSpeakRequest:
     voice: str
     speed: float
     language: str
-    play: bool
+    play_after: float | None
     no_service: bool
     service_timeout_minutes: float
     service_url: str
@@ -182,7 +184,9 @@ class Speaker:
         defaults_loader: Callable[[], SpeechDefaults] = load_defaults,
         embedded: _RecordingGenerator | None = None,
         service: _RecordingGenerator | None = None,
-        playback: Callable[[Path], None] = play_audio,
+        playback: Callable[[Path, float | None], dict[str, object]] = (
+            lambda path, delay: start_playback(path, after=delay)
+        ),
         delivery: _DeliveryPreparer = prepare_delivery,
         now: Callable[[], datetime] = datetime.now,
         notice: Callable[[str], None] | None = None,
@@ -222,8 +226,6 @@ class Speaker:
                 resolved.output.destination.unlink(missing_ok=True)
             raise
 
-        if resolved.play:
-            self._playback(recording.path)
         delivery = self._delivery(
             recording.path,
             resolved.response_markdown,
@@ -235,11 +237,18 @@ class Speaker:
         )
         if delivery.warning is not None:
             self._notice(f"Warning: {delivery.warning}")
+        playback = None
+        if resolved.play_after is not None:
+            if delivery.recording_path is None:
+                raise RuntimeError(
+                    "Could not start playback because viewer delivery failed"
+                )
+            playback = self._playback(delivery.recording_path, resolved.play_after)
         return SpeakReceipt(
             recording=recording,
             selection=resolved.selection,
-            played=resolved.play,
             delivery=delivery,
+            playback=playback,
             service_fallback=fallback,
         )
 
@@ -260,7 +269,7 @@ class Speaker:
             voice=request.voice if request.voice is not None else defaults.voice,
             speed=request.speed if request.speed is not None else defaults.speed,
             language=request.language,
-            play=request.play,
+            play_after=request.play_after,
             no_service=request.no_service,
             service_timeout_minutes=defaults.service_timeout_minutes,
             service_url=request.service_url,

@@ -57,7 +57,7 @@ For setup with experimental playback controls, see
 Test the CLI directly:
 
 ```sh
-agent-voice speak "Hello from Agent Voice." --play
+agent-voice speak "Hello from Agent Voice." -p
 ```
 
 ### Choose a skill
@@ -161,7 +161,7 @@ agent-voice speak --response-file "$RESPONSE_AS_MARKDOWN_FILE" \
 
 # Choose the output and delivery
 agent-voice speak "Here is your summary." \
-  --voice bf_emma --speed 1.2 --format mp3 --play
+  --voice bf_emma --speed 1.2 --format mp3 -p
 ```
 
 | Option | Purpose |
@@ -175,13 +175,14 @@ agent-voice speak "Here is your summary." \
 | `-v, --voice NAME` | Select a voice. |
 | `--lang TAG` | Set the language tag (default: `en-us`). |
 | `--speed NUMBER` | Set pitch-preserving playback speed. |
-| `--play` | Play the recording after creation. |
+| `-p, --play` | Start local playback after creation, without waiting for it to finish. |
+| `--play-after SECONDS` | Schedule local playback after creation, without waiting. |
 | `--controls` | Include experimental desktop playback control links. |
 | `--no-service` | Run the same Agent Voice model inside this command, then unload it. |
 | `--model-id ID`, `--variant NAME` | Select a model and build. |
 
 `speak` prints one JSON receipt with the absolute recording path, file URI,
-audio metadata, playback status, and available viewer links. This makes the
+audio metadata, playback state (`started` or `scheduled`), and available viewer links. This makes the
 command reliable for both people and agents.
 
 ### Configure defaults
@@ -237,6 +238,7 @@ agent will consume the result.
 
 ```sh
 agent-voice play "/absolute/path/recording.mp3"
+agent-voice play "/absolute/path/recording.mp3" --after 10
 agent-voice viewer start
 agent-voice viewer stop
 ```
@@ -249,6 +251,9 @@ than four days and 18 hours; files without Agent Voice source, transcript, and
 language metadata are left alone. Opening a player or audio URL regenerates
 missing audio from its source with the original language and current voice and
 speed.
+
+Playback commands return as soon as local playback starts, or immediately with
+`scheduled` when a delay is requested; they never wait for the recording to end.
 
 > [!Note]
 > 🗒️ The viewer is a workaround for agent surfaces that do not support embedded

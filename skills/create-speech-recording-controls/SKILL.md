@@ -36,8 +36,9 @@ agent-voice speak --label "$LABEL" --response-file "$RESPONSE_AS_MARKDOWN_FILE" 
 Set `LABEL` to a short subject. For an exact requested filename, replace
 `--label "$LABEL"` with `--output "$PATH"`.
 
-For speaker playback, add `--play` and complete after the result reports
-`played: true`.
+For speaker playback, add `-p` and continue after the result reports
+`playback.state: "started"`. Add `--play-after SECONDS` to schedule it without
+blocking.
 
 ## Deliver
 

@@ -57,7 +57,7 @@ def test_top_level_help_has_a_compact_agent_workflow(capsys):
     assert 'agent-voice play "/path/to/recording.mp3"' in help_text
     assert "agent-voice doctor --json" in help_text
     assert (
-        "Agent speech: read the JSON path; only report playback when played=true."
+        "Agent speech: use playback.state; started and scheduled do not mean finished."
         in help_text
     )
 
@@ -95,6 +95,7 @@ def test_serve_accepts_the_highest_valid_port():
                 "--output",
                 "--format",
                 "--play",
+                "--play-after",
                 "--controls",
                 "--no-service",
             ),
@@ -285,7 +286,7 @@ def test_voices_lists_language_tags_and_keeps_flat_json_voices(monkeypatch, caps
 
 def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, capsys):
     captured = []
-    payload = {"path": str(tmp_path / "recording.wav"), "played": False}
+    payload = {"path": str(tmp_path / "recording.wav")}
 
     class Receipt:
         def to_dict(self):
@@ -321,7 +322,9 @@ def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, 
             "1.15",
             "--lang",
             "en-gb",
-            "--play",
+            "-p",
+            "--play-after",
+            "2",
             "--controls",
             "--model-id",
             "kokoro",
@@ -345,7 +348,7 @@ def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, 
             voice="bf_emma",
             speed=1.15,
             language="en-gb",
-            play=True,
+            play_after=2.0,
             controls=True,
             no_service=True,
             service_url="http://127.0.0.1:9000",
@@ -474,37 +477,41 @@ def test_setup_prepares_model(tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().out == f"Ready: {model_path}\n"
 
 
-def test_play_command_plays_existing_recording(tmp_path, monkeypatch, capsys):
+def test_play_command_starts_existing_recording(tmp_path, monkeypatch, capsys):
     recording = tmp_path / "existing recording.mp3"
     recording.write_bytes(b"audio")
     calls = []
-    monkeypatch.setattr(cli, "play_audio", lambda path: calls.append(path))
+    monkeypatch.setattr(
+        cli,
+        "start_playback",
+        lambda path, *, after: calls.append((path, after)) or {"state": "started"},
+    )
 
     cli.main(["play", str(recording), "--json"])
 
-    assert calls == [recording]
+    assert calls == [(recording, None)]
     assert json.loads(capsys.readouterr().out) == {
         "path": str(recording),
-        "played": True,
+        "state": "started",
     }
 
 
-def test_play_command_stops_cleanly_on_keyboard_interrupt(
-    tmp_path, monkeypatch, capsys
-):
+def test_play_command_schedules_existing_recording(tmp_path, monkeypatch, capsys):
     recording = tmp_path / "recording.mp3"
     recording.write_bytes(b"audio")
     monkeypatch.setattr(
         cli,
-        "play_audio",
-        lambda _path: (_ for _ in ()).throw(KeyboardInterrupt),
+        "start_playback",
+        lambda _path, *, after: {"state": "scheduled", "starts_in_seconds": after},
     )
 
-    with pytest.raises(SystemExit) as exit_info:
-        cli.main(["play", str(recording)])
+    cli.main(["play", str(recording), "--after", "10", "--json"])
 
-    assert exit_info.value.code == 130
-    assert capsys.readouterr().err == "Playback stopped\n"
+    assert json.loads(capsys.readouterr().out) == {
+        "path": str(recording),
+        "state": "scheduled",
+        "starts_in_seconds": 10.0,
+    }
 
 
 @pytest.mark.parametrize("name", ["missing.mp3", "recording.flac"])

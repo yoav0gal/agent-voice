@@ -5,6 +5,7 @@ import base64
 import errno
 import html
 import json
+import math
 import os
 import threading
 import time
@@ -13,7 +14,7 @@ from importlib import resources
 from pathlib import Path
 from socketserver import TCPServer
 from string import Template
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from markdown_it import MarkdownIt
 from pygments import highlight
@@ -77,14 +78,36 @@ class Server(ThreadingHTTPServer):
 
     def __init__(self, recordings: Path, port: int = 0) -> None:
         self.playback = PlaybackController()
+        self._timers: set[threading.Timer] = set()
+        self._timer_lock = threading.Lock()
         super().__init__(("127.0.0.1", port), Handler)
         self.recordings = recordings.resolve()
         self.regeneration_lock = threading.Lock()
         self.next_cleanup = time.monotonic()
 
     def server_close(self) -> None:
+        with self._timer_lock:
+            for timer in self._timers:
+                timer.cancel()
+            self._timers.clear()
         self.playback.close()
         super().server_close()
+
+    def schedule_playback(self, recording: Path, delay: float) -> None:
+        def start() -> None:
+            try:
+                self.playback.control(recording, "toggle")
+            except (OSError, RuntimeError, ValueError):
+                pass
+            finally:
+                with self._timer_lock:
+                    self._timers.discard(timer)
+
+        timer = threading.Timer(delay, start)
+        timer.daemon = True
+        with self._timer_lock:
+            self._timers.add(timer)
+        timer.start()
 
     def service_actions(self) -> None:
         now = time.monotonic()
@@ -117,6 +140,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(403)
             return
         url = urlsplit(self.path)
+        if url.path.startswith("/play/"):
+            self._play(url, server)
+            return
         if url.query or self.headers.get("X-Agent-Voice-Control") != "1":
             self.send_error(403)
             return
@@ -131,6 +157,32 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(503, "Playback control failed")
             return
         self._send(json.dumps(state.to_dict()).encode(), "application/json", False)
+
+    def _play(self, url, server: Server) -> None:
+        if self.headers.get("X-Agent-Voice-Playback") != "1":
+            self.send_error(403)
+            return
+        delay = _playback_delay(url.query)
+        if delay is None:
+            self.send_error(404)
+            return
+        recording = self._recording(url.path.removeprefix("/play/"), server)
+        if recording is None:
+            self.send_error(404)
+            return
+        if delay:
+            server.schedule_playback(recording, delay)
+            payload = {"state": "scheduled", "starts_in_seconds": delay}
+        else:
+            try:
+                payload = {
+                    "state": "started",
+                    **server.playback.control(recording, "toggle").to_dict(),
+                }
+            except (OSError, RuntimeError, ValueError):
+                self.send_error(503, "Playback could not be started")
+                return
+        self._send(json.dumps(payload).encode(), "application/json", False)
 
     def _get(self, *, head: bool) -> None:
         server = self.server
@@ -418,6 +470,19 @@ def _byte_range(value: str, size: int) -> tuple[int, int]:
     if suffix_length <= 0:
         raise ValueError("Unsatisfiable byte range")
     return max(0, size - suffix_length), size - 1
+
+
+def _playback_delay(query: str) -> float | None:
+    if not query:
+        return 0.0
+    values = parse_qs(query, keep_blank_values=True)
+    if set(values) != {"after"} or len(values["after"]) != 1:
+        return None
+    try:
+        delay = float(values["after"][0])
+    except ValueError:
+        return None
+    return delay if math.isfinite(delay) and delay >= 0 else None
 
 
 def _player(recording: Path) -> bytes:

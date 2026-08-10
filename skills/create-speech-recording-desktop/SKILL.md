@@ -40,7 +40,8 @@ Set `LABEL` to a short subject. For an exact requested filename, replace
 `--label "$LABEL"` with `--output "$PATH"`.
 
 Use the returned `path` to deliver the recording. For speaker playback, add
-`--play` and complete after the result reports `played: true`.
+`-p`; continue after the result reports `playback.state: "started"`. Add
+`--play-after SECONDS` to schedule it without blocking.
 
 ## Deliver
 

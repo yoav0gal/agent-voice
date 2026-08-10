@@ -48,8 +48,9 @@ Choose the mode from the user's request:
 6. Place the controls above the written response or `Previous` confirmation using
    [default.md](references/delivery/default.md).
 
-For speaker playback, add `--play` and complete after the result reports
-`played: true`. On synthesis failure, send the written response with a brief
+For speaker playback, add `-p` and continue after the result reports
+`playback.state: "started"`. Add `--play-after SECONDS` to schedule it without
+blocking. On synthesis failure, send the written response with a brief
 failure note.
 
 ## Setup
