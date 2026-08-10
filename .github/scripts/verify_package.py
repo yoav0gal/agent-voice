@@ -73,6 +73,56 @@ def check_doctor(report: dict[str, object], service_status: str) -> None:
     assert checks["service"]["status"] == service_status
 
 
+def verify_controls(cli: Path, system: str, output_dir: Path) -> None:
+    if system not in {"Linux", "Windows"}:
+        return
+    if system == "Linux":
+        os.environ["XDG_DATA_HOME"] = str(output_dir / "xdg-data")
+        os.environ["XDG_CONFIG_HOME"] = str(output_dir / "xdg-config")
+
+    installed = run_cli(cli, "controls", "install", "--json")
+    assert installed["installed"] is True
+    assert installed["scheme"] == "agent-voice"
+    if system == "Linux":
+        desktop = Path(str(installed["path"]))
+        contents = desktop.read_text(encoding="utf-8")
+        assert "X-Agent-Voice-Owned=true" in contents
+        assert "-m agent_voice control-url %u" in contents
+        default = subprocess.run(
+            ["xdg-mime", "query", "default", "x-scheme-handler/agent-voice"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert default.stdout.strip() == desktop.name
+    else:
+        import winreg
+
+        base = r"Software\Classes\agent-voice"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, base) as key:
+            assert winreg.QueryValueEx(key, "URL Protocol")[0] == ""
+            assert winreg.QueryValueEx(key, "AgentVoiceOwned")[0] == "1"
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, rf"{base}\shell\open\command"
+        ) as key:
+            command = winreg.QueryValueEx(key, None)[0]
+        assert "-m agent_voice control-url" in command
+        assert '"%1"' in command
+
+    removed = run_cli(cli, "controls", "uninstall", "--json")
+    assert removed["removed"] is True
+    if system == "Linux":
+        assert not Path(str(installed["path"])).exists()
+    else:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, base):
+                pass
+        except FileNotFoundError:
+            pass
+        else:
+            raise AssertionError("Windows control handler was not removed")
+
+
 def main() -> None:
     cli = Path(sys.argv[1]).resolve()
     system = platform.system()
@@ -88,21 +138,19 @@ def main() -> None:
         cli,
         "speak",
         f"{system} generation verification.",
-        "--service",
-        "off",
+        "--no-service",
         "--output",
         str(local_wav),
     )
     assert local["backend"] == "local"
-    assert local["played"] is False
+    assert "playback" not in local
     validate_wav(local_wav)
 
     labeled = run_cli(
         cli,
         "speak",
         f"{system} labeled speed verification.",
-        "--service",
-        "off",
+        "--no-service",
         "--label",
         "Package E2E",
         "--format",
@@ -122,6 +170,7 @@ def main() -> None:
         == (Path(os.environ["AGENT_VOICE_HOME"]) / "recordings").resolve()
     )
     validate_mp3(labeled_path)
+    verify_controls(cli, system, output_dir)
 
     log_path = output_dir / "service.log"
     with log_path.open("w", encoding="utf-8") as log:
@@ -156,15 +205,13 @@ def main() -> None:
                 cli,
                 "speak",
                 f"{system} localhost service verification.",
-                "--service",
-                "on",
                 "--service-url",
                 SERVICE_URL,
                 "--output",
                 str(service_wav),
             )
             assert remote["backend"] == "service"
-            assert remote["played"] is False
+            assert "playback" not in remote
             validate_wav(service_wav)
         finally:
             service.terminate()

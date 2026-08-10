@@ -4,7 +4,7 @@ import json
 import math
 import os
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from .paths import project_root
@@ -12,19 +12,11 @@ from .paths import project_root
 DEFAULT_VOICE = "af_heart"
 DEFAULT_SPEED = 1.0
 DEFAULT_FORMAT = "mp3"
-DEFAULT_SERVICE = "timed"
 DEFAULT_SERVICE_TIMEOUT_MINUTES = 10.0
 MIN_SPEED = 0.5
 MAX_SPEED = 4.0
 FORMATS = ("wav", "mp3", "opus", "m4a")
-SERVICE_MODES = ("on", "off", "timed")
 _UNSET = object()
-
-
-@dataclass(frozen=True)
-class ServiceDefaults:
-    mode: str = DEFAULT_SERVICE
-    timeout_minutes: float | None = DEFAULT_SERVICE_TIMEOUT_MINUTES
 
 
 @dataclass(frozen=True)
@@ -32,18 +24,15 @@ class SpeechDefaults:
     voice: str = DEFAULT_VOICE
     speed: float = DEFAULT_SPEED
     format: str = DEFAULT_FORMAT
-    service: ServiceDefaults = field(default_factory=ServiceDefaults)
+    service_timeout_minutes: float = DEFAULT_SERVICE_TIMEOUT_MINUTES
     output_dir: str | None = None
 
     def to_dict(self) -> dict[str, object]:
-        service: dict[str, object] = {"mode": self.service.mode}
-        if self.service.timeout_minutes is not None:
-            service["timeout_minutes"] = self.service.timeout_minutes
         return {
             "voice": self.voice,
             "speed": self.speed,
             "format": self.format,
-            "service": service,
+            "service": {"timeout_minutes": self.service_timeout_minutes},
             "output_dir": self.output_dir,
         }
 
@@ -64,13 +53,11 @@ def load_defaults() -> SpeechDefaults:
         ) from error
     if not isinstance(payload, dict):
         raise ValueError(f"Agent Voice config at {path} must be a JSON object")
-    service_mode, service_timeout_minutes = _service_values(payload)
     return _validated_defaults(
         payload.get("voice", DEFAULT_VOICE),
         payload.get("speed", DEFAULT_SPEED),
         payload.get("format", DEFAULT_FORMAT),
-        service_mode,
-        service_timeout_minutes,
+        _service_timeout(payload),
         payload.get("output_dir"),
     )
 
@@ -80,7 +67,6 @@ def update_defaults(
     voice: str | None = None,
     speed: float | None = None,
     format: str | None = None,
-    service_mode: str | None = None,
     service_timeout_minutes: float | None = None,
     output_dir: str | os.PathLike[str] | None | object = _UNSET,
 ) -> SpeechDefaults:
@@ -89,10 +75,9 @@ def update_defaults(
         current.voice if voice is None else voice,
         current.speed if speed is None else speed,
         current.format if format is None else format,
-        _updated_service_mode(current.service, service_mode, service_timeout_minutes),
-        _updated_service_timeout(
-            current.service, service_mode, service_timeout_minutes
-        ),
+        current.service_timeout_minutes
+        if service_timeout_minutes is None
+        else service_timeout_minutes,
         current.output_dir if output_dir is _UNSET else output_dir,
     )
     _write_config(updated)
@@ -108,7 +93,6 @@ def _validated_defaults(
     voice: object,
     speed: object,
     format: object,
-    service_mode: object,
     service_timeout_minutes: object,
     output_dir: object,
 ) -> SpeechDefaults:
@@ -122,27 +106,13 @@ def _validated_defaults(
     if not isinstance(format, str) or format.lower() not in FORMATS:
         raise ValueError(f"Default format must be one of: {', '.join(FORMATS)}")
     audio_format = format.lower()
-    if not isinstance(service_mode, str) or service_mode.lower() not in SERVICE_MODES:
-        raise ValueError(
-            f"Default service mode must be one of: {', '.join(SERVICE_MODES)}"
-        )
-    normalized_service_mode = service_mode.lower()
-    if normalized_service_mode == "timed":
-        if isinstance(service_timeout_minutes, bool) or not isinstance(
-            service_timeout_minutes, (int, float)
-        ):
-            raise ValueError("Service timeout must be a number of minutes")
-        timeout = float(service_timeout_minutes)
-        if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError(
-                "Service timeout must be a finite number greater than zero"
-            )
-    else:
-        if service_timeout_minutes is not None:
-            raise ValueError(
-                "Service timeout can only be set when service mode is timed"
-            )
-        timeout = None
+    if isinstance(service_timeout_minutes, bool) or not isinstance(
+        service_timeout_minutes, (int, float)
+    ):
+        raise ValueError("Service timeout must be a number of minutes")
+    timeout = float(service_timeout_minutes)
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("Service timeout must be a finite number greater than zero")
     if output_dir is None:
         configured_output_dir = None
     else:
@@ -159,54 +129,20 @@ def _validated_defaults(
         voice.strip(),
         value,
         audio_format,
-        ServiceDefaults(normalized_service_mode, timeout),
+        timeout,
         configured_output_dir,
     )
 
 
-def _service_values(payload: dict[str, object]) -> tuple[object, object]:
+def _service_timeout(payload: dict[str, object]) -> object:
     service = payload.get("service")
     if service is None:
-        return DEFAULT_SERVICE, DEFAULT_SERVICE_TIMEOUT_MINUTES
+        return payload.get("service_timeout_minutes", DEFAULT_SERVICE_TIMEOUT_MINUTES)
     if isinstance(service, str):
-        legacy_mode = {"auto": "timed", "required": "on"}.get(service, service)
-        timeout = payload.get(
-            "service_timeout_minutes", DEFAULT_SERVICE_TIMEOUT_MINUTES
-        )
-        return legacy_mode, timeout if legacy_mode == "timed" else None
+        return payload.get("service_timeout_minutes", DEFAULT_SERVICE_TIMEOUT_MINUTES)
     if not isinstance(service, dict):
         raise ValueError("Default service must be a JSON object")
-    mode = service.get("mode", DEFAULT_SERVICE)
-    timeout = service.get(
-        "timeout_minutes",
-        DEFAULT_SERVICE_TIMEOUT_MINUTES if mode == "timed" else None,
-    )
-    return mode, timeout
-
-
-def _updated_service_mode(
-    current: ServiceDefaults,
-    requested_mode: str | None,
-    requested_timeout: float | None,
-) -> str:
-    if requested_timeout is not None and requested_mode is None:
-        return "timed"
-    return current.mode if requested_mode is None else requested_mode
-
-
-def _updated_service_timeout(
-    current: ServiceDefaults,
-    requested_mode: str | None,
-    requested_timeout: float | None,
-) -> float | None:
-    mode = _updated_service_mode(current, requested_mode, requested_timeout)
-    if mode != "timed":
-        return requested_timeout
-    if requested_timeout is not None:
-        return requested_timeout
-    if current.mode == "timed":
-        return current.timeout_minutes
-    return DEFAULT_SERVICE_TIMEOUT_MINUTES
+    return service.get("timeout_minutes", DEFAULT_SERVICE_TIMEOUT_MINUTES)
 
 
 def _write_config(defaults: SpeechDefaults) -> None:

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Create Speech Recording Controls"
+  short_description: "Create speech with desktop playback controls"
+  default_prompt: "Use $create-speech-recording-controls to create a controlled speech recording."
+
+policy:
+  allow_implicit_invocation: false

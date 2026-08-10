@@ -8,16 +8,19 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .audio import play_audio
-from .client import DEFAULT_SERVICE_URL
+from .client import (
+    DEFAULT_SERVICE_URL,
+    ensure_service,
+    set_service_timeout,
+    stop_service,
+    validate_service_url,
+)
 from .config import (
     DEFAULT_FORMAT,
-    DEFAULT_SERVICE,
     DEFAULT_SERVICE_TIMEOUT_MINUTES,
     FORMATS,
     MAX_SPEED,
     MIN_SPEED,
-    SERVICE_MODES,
     config_path,
     load_defaults,
     reset_defaults,
@@ -27,7 +30,8 @@ from .model import ModelSelection, SpeechModel, VoiceCatalog
 from .paths import resolved_recording_dir
 from .registry import MODEL_REGISTRY
 from .speaking import SpeakRequest, Speaker
-from .viewer import ensure_viewer, stop_viewer
+from .updates import notify_if_update_available, run_update
+from .viewer import ensure_viewer, start_playback, stop_viewer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,10 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "examples:\n"
             "  agent-voice setup\n"
+            "  agent-voice controls install\n"
             "  printf '%s' \"$TEXT\" | agent-voice speak --format mp3\n"
             '  agent-voice play "/path/to/recording.mp3"\n'
             "  agent-voice doctor --json\n\n"
-            "Agent speech: read the JSON path; only report playback when played=true."
+            "Agent speech: use playback.state; started and scheduled do not mean finished."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -57,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_model_arguments(setup)
     setup.add_argument("--force", action="store_true", help="download again")
+
+    subparsers.add_parser(
+        "update",
+        help="upgrade Agent Voice",
+        description="Upgrade Agent Voice through its uv or pipx installer.",
+    )
 
     speak = subparsers.add_parser(
         "speak",
@@ -103,25 +114,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     speak.add_argument("--lang", default="en-us", help="language tag (default: en-us)")
     speak.add_argument(
+        "-p",
         "--play",
+        dest="play_after",
+        action="store_const",
+        const=0.0,
+        help="start local playback after generating without waiting for completion",
+    )
+    speak.add_argument(
+        "--play-after",
+        type=_nonnegative_seconds,
+        metavar="SECONDS",
+        help="schedule local playback after generating without waiting",
+    )
+    speak.add_argument(
+        "--controls",
         action="store_true",
-        help="play after generating; successful JSON reports played=true",
+        help="include experimental desktop playback control links",
     )
     _add_model_arguments(speak)
     speak.add_argument(
-        "--service",
-        choices=SERVICE_MODES,
-        help=(
-            "service mode (default: configured mode); on leaves the localhost "
-            "service running, off uses embedded inference, and timed stops the "
-            "service after an idle timeout"
-        ),
-    )
-    speak.add_argument(
-        "--service-timeout",
-        type=_positive_minutes,
-        metavar="MINUTES",
-        help="idle minutes in timed service mode (default: configured timeout)",
+        "--no-service",
+        action="store_true",
+        help="run the Agent Voice model in this command, then unload it",
     )
     speak.add_argument(
         "--service-url",
@@ -163,17 +178,11 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"set the default output format (default: {DEFAULT_FORMAT})",
     )
     config.add_argument(
-        "--service",
-        choices=SERVICE_MODES,
-        default=argparse.SUPPRESS,
-        help=f"set the default service mode (default: {DEFAULT_SERVICE})",
-    )
-    config.add_argument(
         "--service-timeout",
         type=_positive_minutes,
         default=argparse.SUPPRESS,
         metavar="MINUTES",
-        help=f"set the timed mode idle timeout (default: {DEFAULT_SERVICE_TIMEOUT_MINUTES:g})",
+        help=f"set the service idle timeout (default: {DEFAULT_SERVICE_TIMEOUT_MINUTES:g})",
     )
     config.add_argument(
         "--output-dir",
@@ -208,6 +217,41 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="MINUTES",
         help="exit after this many idle minutes; omit to keep serving",
     )
+
+    service = subparsers.add_parser(
+        "service",
+        help="manage the background speech service",
+        description="Start or stop the localhost speech service.",
+    )
+    service_actions = service.add_subparsers(dest="service_action", required=True)
+    service_start = service_actions.add_parser(
+        "start", help="start the timed background service"
+    )
+    _add_model_arguments(service_start)
+    service_start.add_argument(
+        "--idle-timeout",
+        type=_positive_minutes,
+        metavar="MINUTES",
+        help=(
+            "stop after this many idle minutes (default: configured value; "
+            f"built-in {DEFAULT_SERVICE_TIMEOUT_MINUTES:g})"
+        ),
+    )
+    service_stop = service_actions.add_parser(
+        "stop", help="stop the background service"
+    )
+    for action in (service_start, service_stop):
+        action.add_argument(
+            "--service-url",
+            default=default_service_url,
+            help=f"localhost service base URL (default: {default_service_url})",
+        )
+        action.add_argument(
+            "--json",
+            action="store_true",
+            help="print one machine-readable service report",
+        )
+
     doctor = subparsers.add_parser(
         "doctor",
         help="check local readiness",
@@ -233,9 +277,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     play.add_argument("recording", type=Path, help="local audio recording")
     play.add_argument(
+        "--after",
+        type=_nonnegative_seconds,
+        metavar="SECONDS",
+        help="schedule playback without waiting",
+    )
+    play.add_argument(
         "--json",
         action="store_true",
-        help="print a receipt after playback completes",
+        help="print a receipt after playback starts or is scheduled",
     )
 
     viewer = subparsers.add_parser(
@@ -251,15 +301,47 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="print one machine-readable viewer report",
         )
+
+    controls = subparsers.add_parser(
+        "controls",
+        help="manage desktop click controls",
+        description="Install or remove the Agent Voice link handler.",
+    )
+    control_actions = controls.add_subparsers(dest="controls_action", required=True)
+    install = control_actions.add_parser("install", help="install the link handler")
+    install.add_argument(
+        "--json", action="store_true", help="print one machine-readable report"
+    )
+    uninstall = control_actions.add_parser(
+        "uninstall", help="remove the installed link handler"
+    )
+    uninstall.add_argument(
+        "--json", action="store_true", help="print one machine-readable report"
+    )
+
+    control_url = subparsers.add_parser(
+        "control-url",
+        help="handle an Agent Voice control link",
+        description="Handle one agent-voice:// playback control link.",
+    )
+    control_url.add_argument("url")
+    control_url.add_argument("--json", action="store_true")
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command != "update":
+        notify_if_update_available()
     try:
         if args.command == "setup":
             _setup(args)
+        elif args.command == "update":
+            return_code = run_update()
+            if return_code:
+                raise SystemExit(return_code)
         elif args.command == "speak":
             _speak(args)
         elif args.command == "voices":
@@ -273,6 +355,8 @@ def main(argv: list[str] | None = None) -> None:
             _models(args)
         elif args.command == "config":
             _config(args)
+        elif args.command == "service":
+            _service(args)
         elif args.command == "serve":
             from .service import serve
 
@@ -293,8 +377,13 @@ def main(argv: list[str] | None = None) -> None:
             _play(args)
         elif args.command == "viewer":
             _viewer(args)
+        elif args.command == "controls":
+            _controls(args)
+        elif args.command == "control-url":
+            _control_url(args)
     except (ValueError, RuntimeError, FileNotFoundError) as error:
-        print(f"Error: {error}", file=sys.stderr)
+        if sys.stderr is not None:
+            print(f"Error: {error}", file=sys.stderr)
         raise SystemExit(2) from error
 
 
@@ -405,10 +494,10 @@ def _speak(args: argparse.Namespace) -> None:
             voice=args.voice,
             speed=args.speed,
             language=args.lang,
-            play=args.play,
-            service=args.service,
-            service_timeout_minutes=args.service_timeout,
+            play_after=args.play_after,
+            no_service=args.no_service,
             service_url=args.service_url,
+            controls=args.controls,
         )
     )
     print(json.dumps(receipt.to_dict()))
@@ -431,8 +520,6 @@ def _config(args: argparse.Namespace) -> None:
         updates["speed"] = args.speed
     if hasattr(args, "format"):
         updates["format"] = args.format
-    if hasattr(args, "service"):
-        updates["service_mode"] = args.service
     if hasattr(args, "service_timeout"):
         updates["service_timeout_minutes"] = args.service_timeout
     if hasattr(args, "output_dir"):
@@ -441,7 +528,7 @@ def _config(args: argparse.Namespace) -> None:
     if args.reset and updates:
         raise ValueError(
             "--reset cannot be combined with --voice, --speed, --format, "
-            "--service, --service-timeout, or --output-dir"
+            "--service-timeout, or --output-dir"
         )
     if args.reset:
         defaults = reset_defaults()
@@ -461,9 +548,7 @@ def _config(args: argparse.Namespace) -> None:
         print(f"Voice: {defaults.voice}")
         print(f"Speed: {defaults.speed:g}")
         print(f"Format: {defaults.format}")
-        print(f"Service mode: {defaults.service.mode}")
-        if defaults.service.timeout_minutes is not None:
-            print(f"Service timeout: {defaults.service.timeout_minutes:g} minutes")
+        print(f"Service timeout: {defaults.service_timeout_minutes:g} minutes")
         print(f"Output directory: {defaults.output_dir or 'default'}")
         print(f"Source: {payload['source']}")
         print(f"Config: {payload['path']}")
@@ -481,16 +566,11 @@ def _play(args: argparse.Namespace) -> None:
         raise FileNotFoundError(f"Recording not found: {path}")
     if path.suffix.lower().lstrip(".") not in FORMATS:
         raise ValueError(f"Recording must use one of: {', '.join(FORMATS)}")
-    try:
-        play_audio(path)
-    except KeyboardInterrupt:
-        print("Playback stopped", file=sys.stderr)
-        raise SystemExit(130) from None
-    receipt = {"path": str(path), "played": True}
+    receipt = {"path": str(path), **start_playback(path, after=args.after)}
     if args.json:
         print(json.dumps(receipt))
     else:
-        print(f"Played {path}")
+        print(f"Playback {receipt['state']}: {path}")
 
 
 def _positive_minutes(value: str) -> float:
@@ -503,6 +583,20 @@ def _positive_minutes(value: str) -> float:
     if not math.isfinite(minutes) or minutes <= 0:
         raise argparse.ArgumentTypeError("must be a finite number greater than zero")
     return minutes
+
+
+def _nonnegative_seconds(value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "must be a non-negative number of seconds"
+        ) from error
+    if not math.isfinite(seconds) or seconds < 0:
+        raise argparse.ArgumentTypeError(
+            "must be a finite non-negative number of seconds"
+        )
+    return seconds
 
 
 def _port(value: str) -> int:
@@ -539,6 +633,63 @@ def _viewer(args: argparse.Namespace) -> None:
         print(f"Recordings: {report.recordings_dir}")
     else:
         print("Recording viewer: stopped")
+
+
+def _service(args: argparse.Namespace) -> None:
+    url = validate_service_url(args.service_url)
+    if args.service_action == "stop":
+        stopped = stop_service(url)
+        report = {"running": False, "stopped": stopped, "url": url}
+    else:
+        timeout = (
+            load_defaults().service_timeout_minutes
+            if args.idle_timeout is None
+            else args.idle_timeout
+        )
+        health = ensure_service(url, _model_selection(args), timeout)
+        set_service_timeout(url, timeout)
+        report = {
+            **health,
+            "running": True,
+            "url": url,
+            "service_timeout_minutes": timeout,
+        }
+
+    if args.json:
+        print(json.dumps(report))
+    elif report["running"]:
+        print(f"Speech service: {url}")
+    else:
+        print(f"Speech service: {'stopped' if stopped else 'not running'}")
+
+
+def _controls(args: argparse.Namespace) -> None:
+    from .controls import handler_path, install_handler, uninstall_handler
+
+    installed = args.controls_action == "install"
+    path = install_handler() if installed else handler_path()
+    removed = False if installed else uninstall_handler()
+    report = {
+        "installed": installed,
+        "scheme": "agent-voice",
+        "path": str(path),
+    }
+    if not installed:
+        report["removed"] = removed
+    message = (
+        f"Agent Voice controls: {path}"
+        if installed
+        else f"Agent Voice controls: {'removed' if removed else 'not installed'}"
+    )
+    print(json.dumps(report) if args.json else message)
+
+
+def _control_url(args: argparse.Namespace) -> None:
+    from .controls import trigger_control_url
+
+    report = trigger_control_url(args.url)
+    if args.json:
+        print(json.dumps(report))
 
 
 if __name__ == "__main__":

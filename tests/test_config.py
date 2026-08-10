@@ -7,7 +7,6 @@ import pytest
 from agent_voice import cli
 from agent_voice.config import (
     DEFAULT_FORMAT,
-    DEFAULT_SERVICE,
     DEFAULT_SERVICE_TIMEOUT_MINUTES,
     DEFAULT_SPEED,
     DEFAULT_VOICE,
@@ -26,8 +25,7 @@ def test_built_in_defaults_are_used_without_a_config(tmp_path, monkeypatch):
     assert defaults.voice == DEFAULT_VOICE
     assert defaults.speed == DEFAULT_SPEED
     assert defaults.format == DEFAULT_FORMAT
-    assert defaults.service.mode == DEFAULT_SERVICE
-    assert defaults.service.timeout_minutes == DEFAULT_SERVICE_TIMEOUT_MINUTES
+    assert defaults.service_timeout_minutes == DEFAULT_SERVICE_TIMEOUT_MINUTES
     assert defaults.output_dir is None
     assert not config_path().exists()
 
@@ -44,7 +42,6 @@ def test_defaults_are_persisted_and_reset(tmp_path, monkeypatch):
         "speed": 1.15,
         "format": "mp3",
         "service": {
-            "mode": "timed",
             "timeout_minutes": 10.0,
         },
         "output_dir": None,
@@ -53,8 +50,7 @@ def test_defaults_are_persisted_and_reset(tmp_path, monkeypatch):
     reset_defaults()
     assert load_defaults().voice == DEFAULT_VOICE
     assert load_defaults().format == DEFAULT_FORMAT
-    assert load_defaults().service.mode == DEFAULT_SERVICE
-    assert load_defaults().service.timeout_minutes == 10.0
+    assert load_defaults().service_timeout_minutes == 10.0
     assert load_defaults().output_dir is None
     assert not config_path().exists()
 
@@ -71,9 +67,8 @@ def test_service_timeout_is_changeable(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
 
     update_defaults(service_timeout_minutes=2.5)
-    assert load_defaults().service.timeout_minutes == 2.5
+    assert load_defaults().service_timeout_minutes == 2.5
     assert json.loads(config_path().read_text())["service"] == {
-        "mode": "timed",
         "timeout_minutes": 2.5,
     }
 
@@ -90,26 +85,23 @@ def test_existing_config_inherits_new_service_defaults(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
     config_path().write_text('{"voice": "bf_emma", "speed": 1.15}')
 
-    assert load_defaults().service.timeout_minutes == 10.0
+    assert load_defaults().service_timeout_minutes == 10.0
     assert load_defaults().format == "mp3"
-    assert load_defaults().service.mode == "timed"
     assert load_defaults().output_dir is None
 
 
-@pytest.mark.parametrize(
-    ("update", "message"),
-    [
-        ({"format": "flac"}, "format"),
-        ({"service_mode": "sometimes"}, "service mode"),
-    ],
-)
-def test_invalid_format_and_service_defaults_are_rejected(
-    tmp_path, monkeypatch, update, message
-):
+def test_legacy_service_mode_is_ignored_but_its_timeout_is_kept(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
+    config_path().write_text('{"service": {"mode": "timed", "timeout_minutes": 3.5}}')
+
+    assert load_defaults().service_timeout_minutes == 3.5
+
+
+def test_invalid_format_default_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
 
-    with pytest.raises(ValueError, match=message):
-        update_defaults(**update)
+    with pytest.raises(ValueError, match="format"):
+        update_defaults(format="flac")
 
 
 def test_output_dir_is_changeable_and_can_restore_default(tmp_path, monkeypatch):
@@ -146,8 +138,6 @@ def test_config_command_updates_and_reports_defaults(tmp_path, monkeypatch, caps
             "1.2",
             "--format",
             "mp3",
-            "--service",
-            "off",
             "--json",
         ]
     )
@@ -156,7 +146,7 @@ def test_config_command_updates_and_reports_defaults(tmp_path, monkeypatch, caps
     assert result["voice"] == "bf_emma"
     assert result["speed"] == 1.2
     assert result["format"] == "mp3"
-    assert result["service"] == {"mode": "off"}
+    assert result["service"] == {"timeout_minutes": 10.0}
     assert result["output_dir"] is None
     assert result["source"] == "config"
     assert result["path"] == str(tmp_path / "config.json")
@@ -167,7 +157,6 @@ def test_config_command_sets_service_timeout(tmp_path, monkeypatch, capsys):
 
     cli.main(["config", "--service-timeout", "3.5", "--json"])
     assert json.loads(capsys.readouterr().out)["service"] == {
-        "mode": "timed",
         "timeout_minutes": 3.5,
     }
 
@@ -191,7 +180,6 @@ def test_config_command_sets_and_resets_output_dir(tmp_path, monkeypatch, capsys
         ["--voice", "bf_emma"],
         ["--speed", "1.2"],
         ["--format", "mp3"],
-        ["--service", "off"],
         ["--service-timeout", "3.5"],
         ["--output-dir", "default"],
     ],

@@ -18,7 +18,7 @@ Listen: [web player]($browser_url) · [media app]($file_uri) · [web audio]($aud
 Or run in the terminal
 
 ```sh
-agent-voice play "$path"
+agent-voice play "$path" # returns when playback starts
 ```
 
 ---

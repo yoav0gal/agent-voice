@@ -57,7 +57,7 @@ def test_top_level_help_has_a_compact_agent_workflow(capsys):
     assert 'agent-voice play "/path/to/recording.mp3"' in help_text
     assert "agent-voice doctor --json" in help_text
     assert (
-        "Agent speech: read the JSON path; only report playback when played=true."
+        "Agent speech: use playback.state; started and scheduled do not mean finished."
         in help_text
     )
 
@@ -95,12 +95,15 @@ def test_serve_accepts_the_highest_valid_port():
                 "--output",
                 "--format",
                 "--play",
-                "--service",
+                "--play-after",
+                "--controls",
+                "--no-service",
             ),
         ),
         ("voices", ("--json", "--model-id", "--variant")),
         ("doctor", ("--service-url", "--json")),
         ("serve", ("--host", "--port", "--idle-timeout")),
+        ("service", ("start", "stop")),
         ("viewer", ("start", "stop")),
     ],
 )
@@ -113,14 +116,14 @@ def test_command_help_exposes_public_options(command, public_options, capsys):
     assert all(option in help_text for option in public_options)
 
 
-def test_config_help_uses_service_modes_and_timeout_language(capsys):
+def test_config_help_exposes_only_the_service_timeout(capsys):
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["config", "--help"])
 
     assert exit_info.value.code == 0
     help_text = capsys.readouterr().out
-    assert "--service {on,off,timed}" in help_text
     assert "--service-timeout MINUTES" in help_text
+    assert "--service {" not in help_text
     assert "--keep-alive" not in help_text
 
 
@@ -136,6 +139,61 @@ def test_viewer_commands_report_start_and_stop(tmp_path, monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out) == running.to_dict()
     cli.main(["viewer", "stop", "--json"])
     assert json.loads(capsys.readouterr().out) == stopped.to_dict()
+
+
+def test_service_commands_report_start_and_stop(monkeypatch, capsys):
+    started = {
+        "status": "ok",
+        "service": "agent-voice",
+        "model_id": "kokoro",
+        "variant": "int8",
+    }
+    calls = []
+    configured = []
+
+    def start(url, selection, timeout):
+        calls.append((url, selection, timeout))
+        return started
+
+    monkeypatch.setattr(cli, "ensure_service", start)
+    monkeypatch.setattr(
+        cli,
+        "set_service_timeout",
+        lambda url, timeout: configured.append((url, timeout)),
+    )
+    monkeypatch.setattr(cli, "stop_service", lambda _url: True)
+
+    cli.main(["config", "--service-timeout", "3.5", "--json"])
+    capsys.readouterr()
+    cli.main(["service", "start", "--json"])
+    assert json.loads(capsys.readouterr().out) == {
+        **started,
+        "running": True,
+        "url": "http://127.0.0.1:8765",
+        "service_timeout_minutes": 3.5,
+    }
+    assert calls == [("http://127.0.0.1:8765", ModelSelection("kokoro", "int8"), 3.5)]
+    assert configured == [("http://127.0.0.1:8765", 3.5)]
+
+    cli.main(["service", "stop", "--json"])
+    assert json.loads(capsys.readouterr().out) == {
+        "running": False,
+        "stopped": True,
+        "url": "http://127.0.0.1:8765",
+    }
+
+
+def test_service_start_accepts_an_idle_timeout_and_has_help(capsys):
+    args = cli.build_parser().parse_args(["service", "start", "--idle-timeout", "2.5"])
+    assert args.idle_timeout == 2.5
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["service", "start", "--help"])
+
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--idle-timeout MINUTES" in help_text
+    assert "built-in 10" in help_text
 
 
 def test_model_arguments_separate_identity_from_variant():
@@ -228,7 +286,7 @@ def test_voices_lists_language_tags_and_keeps_flat_json_voices(monkeypatch, caps
 
 def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, capsys):
     captured = []
-    payload = {"path": str(tmp_path / "recording.wav"), "played": False}
+    payload = {"path": str(tmp_path / "recording.wav")}
 
     class Receipt:
         def to_dict(self):
@@ -264,15 +322,15 @@ def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, 
             "1.15",
             "--lang",
             "en-gb",
-            "--play",
+            "-p",
+            "--play-after",
+            "2",
+            "--controls",
             "--model-id",
             "kokoro",
             "--variant",
             "fp16",
-            "--service",
-            "timed",
-            "--service-timeout",
-            "2.5",
+            "--no-service",
             "--service-url",
             "http://127.0.0.1:9000",
         ]
@@ -290,9 +348,9 @@ def test_speak_dispatches_request_and_serializes_receipt(tmp_path, monkeypatch, 
             voice="bf_emma",
             speed=1.15,
             language="en-gb",
-            play=True,
-            service="timed",
-            service_timeout_minutes=2.5,
+            play_after=2.0,
+            controls=True,
+            no_service=True,
             service_url="http://127.0.0.1:9000",
         )
     ]
@@ -314,10 +372,10 @@ def test_speak_reads_stdin_and_always_serializes_json(monkeypatch, capsys):
     monkeypatch.setattr(cli, "Speaker", FakeSpeaker)
     monkeypatch.setattr(cli.sys, "stdin", io.StringIO("Text from stdin."))
 
-    cli.main(["speak", "--service", "off"])
+    cli.main(["speak", "--no-service"])
 
     assert captured[0].text == "Text from stdin."
-    assert captured[0].service == "off"
+    assert captured[0].no_service is True
     assert json.loads(capsys.readouterr().out) == {"receipt": True}
 
 
@@ -388,6 +446,20 @@ def test_speaker_errors_use_cli_error_contract(monkeypatch, capsys):
     assert capsys.readouterr().err == "Error: invalid request\n"
 
 
+def test_cli_error_without_console_exits_cleanly(monkeypatch):
+    class FakeSpeaker:
+        def speak(self, request):
+            raise ValueError("invalid request")
+
+    monkeypatch.setattr(cli, "Speaker", FakeSpeaker)
+    monkeypatch.setattr(cli, "sys", SimpleNamespace(stderr=None))
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["speak", "Visible text."])
+
+    assert exit_info.value.code == 2
+
+
 def test_setup_prepares_model(tmp_path, monkeypatch, capsys):
     model_path = tmp_path / "model.onnx"
     monkeypatch.setattr(
@@ -405,37 +477,41 @@ def test_setup_prepares_model(tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().out == f"Ready: {model_path}\n"
 
 
-def test_play_command_plays_existing_recording(tmp_path, monkeypatch, capsys):
+def test_play_command_starts_existing_recording(tmp_path, monkeypatch, capsys):
     recording = tmp_path / "existing recording.mp3"
     recording.write_bytes(b"audio")
     calls = []
-    monkeypatch.setattr(cli, "play_audio", lambda path: calls.append(path))
+    monkeypatch.setattr(
+        cli,
+        "start_playback",
+        lambda path, *, after: calls.append((path, after)) or {"state": "started"},
+    )
 
     cli.main(["play", str(recording), "--json"])
 
-    assert calls == [recording]
+    assert calls == [(recording, None)]
     assert json.loads(capsys.readouterr().out) == {
         "path": str(recording),
-        "played": True,
+        "state": "started",
     }
 
 
-def test_play_command_stops_cleanly_on_keyboard_interrupt(
-    tmp_path, monkeypatch, capsys
-):
+def test_play_command_schedules_existing_recording(tmp_path, monkeypatch, capsys):
     recording = tmp_path / "recording.mp3"
     recording.write_bytes(b"audio")
     monkeypatch.setattr(
         cli,
-        "play_audio",
-        lambda _path: (_ for _ in ()).throw(KeyboardInterrupt),
+        "start_playback",
+        lambda _path, *, after: {"state": "scheduled", "starts_in_seconds": after},
     )
 
-    with pytest.raises(SystemExit) as exit_info:
-        cli.main(["play", str(recording)])
+    cli.main(["play", str(recording), "--after", "10", "--json"])
 
-    assert exit_info.value.code == 130
-    assert capsys.readouterr().err == "Playback stopped\n"
+    assert json.loads(capsys.readouterr().out) == {
+        "path": str(recording),
+        "state": "scheduled",
+        "starts_in_seconds": 10.0,
+    }
 
 
 @pytest.mark.parametrize("name", ["missing.mp3", "recording.flac"])

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import secrets
 import shutil
 import signal
 import subprocess
@@ -17,16 +19,19 @@ from urllib.parse import quote
 
 from filelock import FileLock
 
+from .audio import PLAYBACK_ACTIONS
 from .media import CONTENT_TYPES
 from .paths import project_root, recording_dir
 
 
 _TRANSCRIPT_DIRECTORY = ".agent-voice-viewer"
 _PLAYER_DIRECTORY = "players"
+_CONTROL_DIRECTORY = "controls"
 _RECORDING_RETENTION_SECONDS = (4 * 24 + 18) * 60 * 60
 _STARTUP_TIMEOUT_SECONDS = 15.0
 _STARTUP_HEALTH_TIMEOUT_SECONDS = 1.0
-VIEWER_PROTOCOL = 3
+VIEWER_PROTOCOL = 9
+_CONTROL_TOKEN = re.compile(r"[A-Za-z0-9_-]{24}")
 
 
 @dataclass(frozen=True)
@@ -80,10 +85,7 @@ def ensure_viewer(recordings_dir: Path | None = None) -> Viewer:
             stderr=subprocess.DEVNULL,
             close_fds=True,
             **(
-                {
-                    "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP
-                    | subprocess.DETACHED_PROCESS
-                }
+                {"creationflags": subprocess.CREATE_NO_WINDOW}
                 if os.name == "nt"
                 else {"start_new_session": True}
             ),
@@ -231,6 +233,14 @@ def publish_player(recording: Path, text: str) -> str:
             return f"{name}.html"
 
 
+def publish_control(recording: Path) -> str:
+    root = transcript_path(recording).parent / _CONTROL_DIRECTORY
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    token = secrets.token_urlsafe(18)
+    _write_text(root / f"{token}.txt", recording.name)
+    return token
+
+
 def transcript_path(recording: Path) -> Path:
     path = recording.expanduser().resolve()
     digest = hashlib.sha256(path.name.encode()).hexdigest()
@@ -270,6 +280,10 @@ def player_mapping_path(recordings: Path, player_name: str) -> Path:
     return recordings / _TRANSCRIPT_DIRECTORY / _PLAYER_DIRECTORY / f"{player_name}.txt"
 
 
+def control_mapping_path(recordings: Path, token: str) -> Path:
+    return recordings / _TRANSCRIPT_DIRECTORY / _CONTROL_DIRECTORY / f"{token}.txt"
+
+
 def recording_urls(
     viewer: Viewer,
     recording: Path,
@@ -282,6 +296,50 @@ def recording_urls(
         f"{viewer.url}/player/{quote(player_name, safe='')}",
         f"{viewer.url}/recordings/{name}",
     )
+
+
+def recording_control_urls(token: str) -> dict[str, str]:
+    if _CONTROL_TOKEN.fullmatch(token) is None:
+        raise ValueError("Invalid playback control token")
+    base = f"agent-voice://control/{token}"
+    return {action: f"{base}/{action}" for action in PLAYBACK_ACTIONS}
+
+
+def valid_control_token(token: str) -> bool:
+    return _CONTROL_TOKEN.fullmatch(token) is not None
+
+
+def active_viewer() -> Viewer | None:
+    return _running(_state())
+
+
+def start_playback(recording: Path, *, after: float | None = None) -> dict[str, object]:
+    """Ask the persistent local viewer to start one recording."""
+    path = recording.expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"Recording not found: {path}")
+    if after is not None and after < 0:
+        raise ValueError("Playback delay must not be negative")
+    viewer = ensure_viewer(path.parent)
+    if viewer.url is None:
+        raise RuntimeError("Recording viewer is not running")
+    delay = "" if after is None else f"?after={after:g}"
+    request = urllib.request.Request(
+        f"{viewer.url}/play/{quote(path.name, safe='')}{delay}",
+        headers={"X-Agent-Voice-Playback": "1"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            result = json.loads(response.read())
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        raise RuntimeError("Playback could not be started") from error
+    if not isinstance(result, dict) or result.get("state") not in {
+        "started",
+        "scheduled",
+    }:
+        raise RuntimeError("Playback returned an invalid response")
+    return result
 
 
 def _state() -> dict[str, object]:

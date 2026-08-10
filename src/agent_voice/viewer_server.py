@@ -5,6 +5,7 @@ import base64
 import errno
 import html
 import json
+import math
 import os
 import threading
 import time
@@ -13,7 +14,7 @@ from importlib import resources
 from pathlib import Path
 from socketserver import TCPServer
 from string import Template
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from markdown_it import MarkdownIt
 from pygments import highlight
@@ -22,17 +23,19 @@ from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
 
 from . import __version__
-from .audio import write_audio
+from .audio import PLAYBACK_ACTIONS, PlaybackController, write_audio
 from .config import load_defaults
 from .media import CONTENT_TYPES
 from .model import NamedVoice, SynthesisRequest
 from .registry import MODEL_REGISTRY
 from .viewer import (
+    control_mapping_path,
     delete_expired_recordings,
     language_path,
     player_mapping_path,
     source_path,
     transcript_path,
+    valid_control_token,
     VIEWER_PROTOCOL,
 )
 
@@ -74,10 +77,37 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, recordings: Path, port: int = 0) -> None:
+        self.playback = PlaybackController()
+        self._timers: set[threading.Timer] = set()
+        self._timer_lock = threading.Lock()
         super().__init__(("127.0.0.1", port), Handler)
         self.recordings = recordings.resolve()
         self.regeneration_lock = threading.Lock()
         self.next_cleanup = time.monotonic()
+
+    def server_close(self) -> None:
+        with self._timer_lock:
+            for timer in self._timers:
+                timer.cancel()
+            self._timers.clear()
+        self.playback.close()
+        super().server_close()
+
+    def schedule_playback(self, recording: Path, delay: float) -> None:
+        def start() -> None:
+            try:
+                self.playback.control(recording, "restart")
+            except (OSError, RuntimeError, ValueError):
+                pass
+            finally:
+                with self._timer_lock:
+                    self._timers.discard(timer)
+
+        timer = threading.Timer(delay, start)
+        timer.daemon = True
+        with self._timer_lock:
+            self._timers.add(timer)
+        timer.start()
 
     def service_actions(self) -> None:
         now = time.monotonic()
@@ -104,14 +134,59 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:
         self._get(head=True)
 
+    def do_POST(self) -> None:
+        server = self.server
+        if not isinstance(server, Server) or not self._valid_host(server):
+            self.send_error(403)
+            return
+        url = urlsplit(self.path)
+        if url.path.startswith("/play/"):
+            self._play(url, server)
+            return
+        if url.query or self.headers.get("X-Agent-Voice-Control") != "1":
+            self.send_error(403)
+            return
+        target = self._control_target(url.path, server)
+        if target is None:
+            self.send_error(404)
+            return
+        recording, action = target
+        try:
+            state = server.playback.control(recording, action)
+        except (OSError, RuntimeError, ValueError):
+            self.send_error(503, "Playback control failed")
+            return
+        self._send(json.dumps(state.to_dict()).encode(), "application/json", False)
+
+    def _play(self, url, server: Server) -> None:
+        if self.headers.get("X-Agent-Voice-Playback") != "1":
+            self.send_error(403)
+            return
+        delay = _playback_delay(url.query)
+        if delay is None:
+            self.send_error(404)
+            return
+        recording = self._recording(url.path.removeprefix("/play/"), server)
+        if recording is None:
+            self.send_error(404)
+            return
+        if delay:
+            server.schedule_playback(recording, delay)
+            payload = {"state": "scheduled", "starts_in_seconds": delay}
+        else:
+            try:
+                payload = {
+                    "state": "started",
+                    **server.playback.control(recording, "restart").to_dict(),
+                }
+            except (OSError, RuntimeError, ValueError):
+                self.send_error(503, "Playback could not be started")
+                return
+        self._send(json.dumps(payload).encode(), "application/json", False)
+
     def _get(self, *, head: bool) -> None:
         server = self.server
-        if not isinstance(server, Server) or self.headers.get(
-            "Host", ""
-        ).lower() not in {
-            f"127.0.0.1:{server.server_port}",
-            f"localhost:{server.server_port}",
-        }:
+        if not isinstance(server, Server) or not self._valid_host(server):
             self.send_error(403)
             return
 
@@ -132,6 +207,10 @@ class Handler(BaseHTTPRequestHandler):
                 "application/json",
                 head,
             )
+            return
+
+        if url.path.startswith("/control/"):
+            self.send_error(405)
             return
 
         prefix = next(
@@ -193,21 +272,40 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return self._recording(quote(recording_name, safe=""), server)
 
+    def _control_target(self, path: str, server: Server) -> tuple[Path, str] | None:
+        if not path.startswith("/control/"):
+            return None
+        try:
+            token, action = (
+                unquote(part, errors="strict")
+                for part in path.removeprefix("/control/").split("/")
+            )
+        except (UnicodeError, ValueError):
+            return None
+        if not valid_control_token(token) or action not in PLAYBACK_ACTIONS:
+            return None
+        try:
+            recording_name = control_mapping_path(server.recordings, token).read_text(
+                encoding="utf-8"
+            )
+        except (OSError, UnicodeError):
+            return None
+        recording = self._recording(quote(recording_name, safe=""), server)
+        return None if recording is None else (recording, action)
+
+    def _valid_host(self, server: Server) -> bool:
+        return self.headers.get("Host", "").lower() in {
+            f"127.0.0.1:{server.server_port}",
+            f"localhost:{server.server_port}",
+        }
+
     def _recording(self, encoded: str, server: Server) -> Path | None:
         try:
             name = unquote(encoded, errors="strict")
-            if (
-                not name
-                or "/" in name
-                or "\\" in name
-                or Path(name).name != name
-                or name.rpartition(".")[2].lower() not in CONTENT_TYPES
-            ):
-                return None
-            path = (server.recordings / name).resolve()
         except (OSError, UnicodeError, ValueError):
             return None
-        if path.parent != server.recordings:
+        path = self._recording_path(name, server)
+        if path is None:
             return None
         if not path.is_file():
             with server.regeneration_lock:
@@ -223,6 +321,21 @@ class Handler(BaseHTTPRequestHandler):
                         return None
                     _regenerate_recording(path)
         return path if path.is_file() else None
+
+    def _recording_path(self, name: str, server: Server) -> Path | None:
+        try:
+            if (
+                not name
+                or "/" in name
+                or "\\" in name
+                or Path(name).name != name
+                or name.rpartition(".")[2].lower() not in CONTENT_TYPES
+            ):
+                return None
+            path = (server.recordings / name).resolve()
+        except (OSError, ValueError):
+            return None
+        return path if path.parent == server.recordings else None
 
     def _send_file(self, path: Path, content_type: str, head: bool) -> bool:
         try:
@@ -357,6 +470,19 @@ def _byte_range(value: str, size: int) -> tuple[int, int]:
     if suffix_length <= 0:
         raise ValueError("Unsatisfiable byte range")
     return max(0, size - suffix_length), size - 1
+
+
+def _playback_delay(query: str) -> float | None:
+    if not query:
+        return 0.0
+    values = parse_qs(query, keep_blank_values=True)
+    if set(values) != {"after"} or len(values["after"]) != 1:
+        return None
+    try:
+        delay = float(values["after"][0])
+    except ValueError:
+        return None
+    return delay if math.isfinite(delay) and delay >= 0 else None
 
 
 def _player(recording: Path) -> bytes:

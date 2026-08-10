@@ -9,20 +9,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from .audio import play_audio, write_audio
+from .audio import write_audio
 from .client import (
     DEFAULT_SERVICE_URL,
     ServiceUnavailable,
     ensure_service,
     request_speech,
 )
-from .config import (
-    DEFAULT_SERVICE_TIMEOUT_MINUTES,
-    FORMATS,
-    SERVICE_MODES,
-    SpeechDefaults,
-    load_defaults,
-)
+from .config import FORMATS, SpeechDefaults, load_defaults
 from .delivery import Delivery, prepare_delivery
 from .model import (
     ModelSelection,
@@ -33,6 +27,7 @@ from .model import (
 )
 from .paths import resolved_recording_dir
 from .registry import MODEL_REGISTRY
+from .viewer import start_playback
 
 
 @dataclass(frozen=True)
@@ -46,26 +41,27 @@ class SpeakRequest:
     voice: str | None = None
     speed: float | None = None
     language: str = "en-us"
-    play: bool = False
-    service: str | None = None
-    service_timeout_minutes: float | None = None
+    play_after: float | None = None
+    no_service: bool = False
     service_url: str = DEFAULT_SERVICE_URL
     response_markdown: str | None = None
+    controls: bool = False
 
 
 @dataclass(frozen=True)
 class SpeakReceipt:
     recording: Recording
     selection: ModelSelection
-    played: bool
     delivery: Delivery
+    playback: dict[str, object] | None = None
     service_fallback: bool = False
 
     def to_dict(self) -> dict[str, object]:
         payload = self.recording.to_dict()
         payload["model_id"] = self.selection.model_id
         payload["variant"] = self.selection.variant
-        payload["played"] = self.played
+        if self.playback is not None:
+            payload["playback"] = self.playback
         if self.service_fallback:
             payload["service_fallback"] = True
         payload["file_uri"] = self.recording.path.resolve().as_uri()
@@ -78,6 +74,8 @@ class SpeakReceipt:
                     "recording_path": str(self.delivery.recording_path),
                 }
             )
+            if self.delivery.controls is not None:
+                delivery["controls"] = self.delivery.controls
         payload["delivery"] = delivery
         return payload
 
@@ -99,10 +97,11 @@ class _ResolvedSpeakRequest:
     voice: str
     speed: float
     language: str
-    play: bool
-    service: str
-    service_timeout_minutes: float | None
+    play_after: float | None
+    no_service: bool
+    service_timeout_minutes: float
     service_url: str
+    controls: bool
 
 
 class _RecordingGenerator(Protocol):
@@ -119,6 +118,7 @@ class _DeliveryPreparer(Protocol):
         language: str,
         audio_format: str,
         recordings_dir: Path,
+        controls: bool,
     ) -> Delivery: ...
 
 
@@ -184,7 +184,9 @@ class Speaker:
         defaults_loader: Callable[[], SpeechDefaults] = load_defaults,
         embedded: _RecordingGenerator | None = None,
         service: _RecordingGenerator | None = None,
-        playback: Callable[[Path], None] = play_audio,
+        playback: Callable[[Path, float | None], dict[str, object]] = (
+            lambda path, delay: start_playback(path, after=delay)
+        ),
         delivery: _DeliveryPreparer = prepare_delivery,
         now: Callable[[], datetime] = datetime.now,
         notice: Callable[[str], None] | None = None,
@@ -206,7 +208,7 @@ class Speaker:
         resolved = self._resolve(request, defaults)
         fallback = False
         try:
-            if resolved.service == "off":
+            if resolved.no_service:
                 recording = self._embedded.generate(resolved)
             else:
                 try:
@@ -224,8 +226,6 @@ class Speaker:
                 resolved.output.destination.unlink(missing_ok=True)
             raise
 
-        if resolved.play:
-            self._playback(recording.path)
         delivery = self._delivery(
             recording.path,
             resolved.response_markdown,
@@ -233,14 +233,22 @@ class Speaker:
             language=resolved.language,
             audio_format=recording.format,
             recordings_dir=resolved.output.recording_root,
+            controls=resolved.controls,
         )
         if delivery.warning is not None:
             self._notice(f"Warning: {delivery.warning}")
+        playback = None
+        if resolved.play_after is not None:
+            if delivery.recording_path is None:
+                raise RuntimeError(
+                    "Could not start playback because viewer delivery failed"
+                )
+            playback = self._playback(delivery.recording_path, resolved.play_after)
         return SpeakReceipt(
             recording=recording,
             selection=resolved.selection,
-            played=resolved.play,
             delivery=delivery,
+            playback=playback,
             service_fallback=fallback,
         )
 
@@ -249,7 +257,6 @@ class Speaker:
         request: SpeakRequest,
         defaults: SpeechDefaults,
     ) -> _ResolvedSpeakRequest:
-        service, timeout = _resolve_service_policy(request, defaults)
         return _ResolvedSpeakRequest(
             text=request.text,
             response_markdown=(
@@ -262,10 +269,11 @@ class Speaker:
             voice=request.voice if request.voice is not None else defaults.voice,
             speed=request.speed if request.speed is not None else defaults.speed,
             language=request.language,
-            play=request.play,
-            service=service,
-            service_timeout_minutes=timeout,
+            play_after=request.play_after,
+            no_service=request.no_service,
+            service_timeout_minutes=defaults.service_timeout_minutes,
             service_url=request.service_url,
+            controls=request.controls,
         )
 
     def _plan_output(
@@ -318,26 +326,6 @@ class Speaker:
             recording_root,
             True,
         )
-
-
-def _resolve_service_policy(
-    request: SpeakRequest,
-    defaults: SpeechDefaults,
-) -> tuple[str, float | None]:
-    configured = defaults.service
-    service = request.service if request.service is not None else configured.mode
-    if service not in SERVICE_MODES:
-        raise ValueError(f"Service mode must be one of: {', '.join(SERVICE_MODES)}")
-    requested_timeout = request.service_timeout_minutes
-    if requested_timeout is not None and service != "timed":
-        raise ValueError("--service-timeout can only be used with --service timed")
-    if service != "timed":
-        return service, None
-    if requested_timeout is not None:
-        return service, requested_timeout
-    if configured.mode == "timed":
-        return service, configured.timeout_minutes
-    return service, DEFAULT_SERVICE_TIMEOUT_MINUTES
 
 
 def _require_planned_recording(
