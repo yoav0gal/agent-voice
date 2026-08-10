@@ -231,7 +231,9 @@ def _install_windows_handler() -> str:
 
 def _windows_handler_executable() -> str:
     windowed = Path(sys.executable).with_name("pythonw.exe")
-    return str(windowed) if windowed.is_file() else sys.executable
+    if not windowed.is_file():
+        raise RuntimeError("pythonw.exe is required for Agent Voice controls")
+    return str(windowed)
 
 
 def _uninstall_windows_handler() -> bool:

@@ -304,11 +304,12 @@ def test_windows_handler_installs_updates_and_uninstalls(tmp_path, monkeypatch):
     assert base not in registry.keys
 
 
-def test_windows_handler_falls_back_to_console_python(tmp_path, monkeypatch):
+def test_windows_handler_requires_windowless_python(tmp_path, monkeypatch):
     executable = tmp_path / "python.exe"
     monkeypatch.setattr(controls.sys, "executable", str(executable))
 
-    assert controls._windows_handler_executable() == str(executable)
+    with pytest.raises(RuntimeError, match="pythonw.exe is required"):
+        controls._windows_handler_executable()
 
 
 def test_windows_handler_refuses_unowned_registry_key(monkeypatch):
