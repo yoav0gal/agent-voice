@@ -207,10 +207,12 @@ def test_viewer_starts_or_schedules_local_playback(tmp_path, monkeypatch):
     recording = tmp_path / "sample.mp3"
     recording.write_bytes(b"audio")
     calls = []
+    played = threading.Event()
 
     class Playback:
         def control(self, path, action):
             calls.append((path, action))
+            played.set()
             return SimpleNamespace(to_dict=lambda: {"playing": True})
 
         def close(self):
@@ -225,16 +227,21 @@ def test_viewer_starts_or_schedules_local_playback(tmp_path, monkeypatch):
         with urllib.request.urlopen(request) as response:
             assert json.loads(response.read()) == {"state": "started", "playing": True}
 
+        with urllib.request.urlopen(request) as response:
+            assert json.loads(response.read()) == {"state": "started", "playing": True}
+
+        played.clear()
         request = urllib.request.Request(
-            f"{url}/play/sample.mp3?after=60", headers=headers, method="POST"
+            f"{url}/play/sample.mp3?after=0.01", headers=headers, method="POST"
         )
         with urllib.request.urlopen(request) as response:
             assert json.loads(response.read()) == {
                 "state": "scheduled",
-                "starts_in_seconds": 60.0,
+                "starts_in_seconds": 0.01,
             }
+        assert played.wait(timeout=1)
 
-    assert calls == [(recording.resolve(), "toggle")]
+    assert calls == [(recording.resolve(), "restart")] * 3
 
 
 def test_rejected_control_probe_does_not_regenerate_missing_audio(

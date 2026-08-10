@@ -96,7 +96,7 @@ class Server(ThreadingHTTPServer):
     def schedule_playback(self, recording: Path, delay: float) -> None:
         def start() -> None:
             try:
-                self.playback.control(recording, "toggle")
+                self.playback.control(recording, "restart")
             except (OSError, RuntimeError, ValueError):
                 pass
             finally:
@@ -177,7 +177,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 payload = {
                     "state": "started",
-                    **server.playback.control(recording, "toggle").to_dict(),
+                    **server.playback.control(recording, "restart").to_dict(),
                 }
             except (OSError, RuntimeError, ValueError):
                 self.send_error(503, "Playback could not be started")
