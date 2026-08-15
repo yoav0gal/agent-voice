@@ -278,7 +278,7 @@ Playback commands return as soon as local playback starts, or immediately with
 ```sh
 agent-voice serve
 
-curl http://127.0.0.1:8765/v1/audio/speech \
+curl http://127.0.0.1:18765/v1/audio/speech \
   -H 'Content-Type: application/json' \
   -d '{"input":"The task is complete.","voice":"af_heart","response_format":"mp3"}' \
   --output speech.mp3
