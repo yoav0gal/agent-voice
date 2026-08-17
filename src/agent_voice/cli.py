@@ -75,16 +75,6 @@ def build_parser() -> argparse.ArgumentParser:
         description="Create a local audio recording from positional text or stdin.",
     )
     speak.add_argument("text", nargs="?", help="text to read; omit to read stdin")
-    response = speak.add_mutually_exclusive_group()
-    response.add_argument(
-        "--markdown",
-        help="Markdown response to show in the browser viewer",
-    )
-    response.add_argument(
-        "--response-file",
-        type=Path,
-        help="Markdown response to show in the browser viewer",
-    )
     speak.add_argument(
         "-o",
         "--output",
@@ -131,6 +121,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--controls",
         action="store_true",
         help="include experimental desktop playback control links",
+    )
+    speak.add_argument(
+        "--wait",
+        action="store_true",
+        help="wait for the completed recording before returning",
     )
     _add_model_arguments(speak)
     speak.add_argument(
@@ -477,16 +472,10 @@ def _models(args: argparse.Namespace) -> None:
 
 def _speak(args: argparse.Namespace) -> None:
     text = args.text if args.text is not None else sys.stdin.read()
-    response_markdown = (
-        _read_response_file(args.response_file)
-        if args.response_file is not None
-        else args.markdown
-    )
     receipt = Speaker().speak(
         SpeakRequest(
             text=text,
             selection=_model_selection(args),
-            response_markdown=response_markdown,
             output=args.output,
             label=args.label,
             output_dir=args.output_dir,
@@ -498,18 +487,10 @@ def _speak(args: argparse.Namespace) -> None:
             no_service=args.no_service,
             service_url=args.service_url,
             controls=args.controls,
+            wait=args.wait,
         )
     )
     print(json.dumps(receipt.to_dict()))
-
-
-def _read_response_file(path: Path) -> str:
-    try:
-        return path.expanduser().read_text(encoding="utf-8")
-    except FileNotFoundError:
-        raise
-    except (OSError, UnicodeError) as error:
-        raise ValueError(f"Could not read response file: {error}") from error
 
 
 def _config(args: argparse.Namespace) -> None:

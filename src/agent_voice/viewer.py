@@ -20,17 +20,24 @@ from urllib.parse import quote
 from filelock import FileLock
 
 from .audio import PLAYBACK_ACTIONS
-from .media import CONTENT_TYPES
-from .paths import project_root, recording_dir
+from .media import CONTENT_TYPES, generating_audio
+from .paths import (
+    pending_generation_path,
+    project_root,
+    recording_dir,
+    streaming_pcm_path,
+)
 
 
-_TRANSCRIPT_DIRECTORY = ".agent-voice-viewer"
+_VIEWER_DIRECTORY = ".agent-voice-viewer"
 _PLAYER_DIRECTORY = "players"
 _CONTROL_DIRECTORY = "controls"
 _RECORDING_RETENTION_SECONDS = (4 * 24 + 18) * 60 * 60
+_STREAM_RETENTION_SECONDS = 60 * 60
+_INTERRUPTED_GENERATION_RETENTION_SECONDS = 6 * 60 * 60
 _STARTUP_TIMEOUT_SECONDS = 15.0
 _STARTUP_HEALTH_TIMEOUT_SECONDS = 1.0
-VIEWER_PROTOCOL = 9
+VIEWER_PROTOCOL = 12
 _CONTROL_TOKEN = re.compile(r"[A-Za-z0-9_-]{24}")
 
 
@@ -171,10 +178,6 @@ def publish_recording(
     return destination
 
 
-def publish_transcript(recording: Path, text: str) -> Path:
-    return _write_text(transcript_path(recording), text)
-
-
 def publish_source(recording: Path, text: str) -> Path:
     return _write_text(source_path(recording), text)
 
@@ -202,9 +205,8 @@ def _write_text(destination: Path, text: str) -> Path:
     return destination
 
 
-def publish_player(recording: Path, text: str) -> str:
-    publish_transcript(recording, text)
-    root = transcript_path(recording).parent / _PLAYER_DIRECTORY
+def publish_player(recording: Path) -> str:
+    root = _viewer_root(recording) / _PLAYER_DIRECTORY
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     base = recording.stem
     name = base
@@ -234,17 +236,16 @@ def publish_player(recording: Path, text: str) -> str:
 
 
 def publish_control(recording: Path) -> str:
-    root = transcript_path(recording).parent / _CONTROL_DIRECTORY
+    root = _viewer_root(recording) / _CONTROL_DIRECTORY
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     token = secrets.token_urlsafe(18)
     _write_text(root / f"{token}.txt", recording.name)
     return token
 
 
-def transcript_path(recording: Path) -> Path:
+def _viewer_root(recording: Path) -> Path:
     path = recording.expanduser().resolve()
-    digest = hashlib.sha256(path.name.encode()).hexdigest()
-    return path.parent / _TRANSCRIPT_DIRECTORY / f"{digest}.txt"
+    return path.parent / _VIEWER_DIRECTORY
 
 
 def source_path(recording: Path) -> Path:
@@ -253,23 +254,48 @@ def source_path(recording: Path) -> Path:
 
 
 def language_path(recording: Path) -> Path:
-    return transcript_path(recording).with_suffix(".lang")
+    path = recording.expanduser().resolve()
+    digest = hashlib.sha256(path.name.encode()).hexdigest()
+    return _viewer_root(path) / f"{digest}.lang"
 
 
 def delete_expired_recordings(recordings: Path, *, now: float | None = None) -> None:
-    cutoff = (time.time() if now is None else now) - _RECORDING_RETENTION_SECONDS
+    current = time.time() if now is None else now
+    cutoff = current - _RECORDING_RETENTION_SECONDS
+    stream_cutoff = current - _STREAM_RETENTION_SECONDS
+    interrupted_cutoff = current - _INTERRUPTED_GENERATION_RETENTION_SECONDS
     try:
         # ponytail: a direct top-level scan is enough for the managed folder.
         for path in recordings.iterdir():
             try:
+                if path.name.startswith(".") and path.suffix == ".pending":
+                    recording = recordings / path.name[1 : -len(path.suffix)]
+                    if path.stat().st_mtime <= interrupted_cutoff:
+                        path.unlink()
+                        streaming_pcm_path(recording).unlink(missing_ok=True)
+                        if recording.is_file() and (
+                            recording.stat().st_size == 0
+                            or recording.read_bytes()
+                            == generating_audio(recording.suffix.lstrip(".").lower())
+                        ):
+                            recording.unlink()
+                    continue
+                if path.name.startswith(".") and path.suffix == ".pcm":
+                    recording = recordings / path.name[1 : -len(path.suffix)]
+                    if (
+                        path.stat().st_mtime <= stream_cutoff
+                        and not pending_generation_path(recording).is_file()
+                    ):
+                        path.unlink()
+                    continue
                 if (
                     path.suffix.lower().lstrip(".") in CONTENT_TYPES
                     and source_path(path).is_file()
-                    and transcript_path(path).is_file()
                     and language_path(path).is_file()
                     and path.stat().st_mtime <= cutoff
                 ):
                     path.unlink()
+                    streaming_pcm_path(path).unlink(missing_ok=True)
             except OSError:
                 continue
     except OSError:
@@ -277,11 +303,20 @@ def delete_expired_recordings(recordings: Path, *, now: float | None = None) -> 
 
 
 def player_mapping_path(recordings: Path, player_name: str) -> Path:
-    return recordings / _TRANSCRIPT_DIRECTORY / _PLAYER_DIRECTORY / f"{player_name}.txt"
+    return recordings / _VIEWER_DIRECTORY / _PLAYER_DIRECTORY / f"{player_name}.txt"
 
 
 def control_mapping_path(recordings: Path, token: str) -> Path:
-    return recordings / _TRANSCRIPT_DIRECTORY / _CONTROL_DIRECTORY / f"{token}.txt"
+    return recordings / _VIEWER_DIRECTORY / _CONTROL_DIRECTORY / f"{token}.txt"
+
+
+def recording_player_url(
+    viewer: Viewer,
+    player_name: str,
+) -> str:
+    if not viewer.url:
+        raise RuntimeError("Recording viewer is not running")
+    return f"{viewer.url}/player/{quote(player_name, safe='')}"
 
 
 def recording_urls(
@@ -291,11 +326,16 @@ def recording_urls(
 ) -> tuple[str, str]:
     if not viewer.url:
         raise RuntimeError("Recording viewer is not running")
-    name = quote(recording.name, safe="")
     return (
-        f"{viewer.url}/player/{quote(player_name, safe='')}",
-        f"{viewer.url}/recordings/{name}",
+        recording_player_url(viewer, player_name),
+        f"{viewer.url}/recordings/{quote(recording.name, safe='')}",
     )
+
+
+def recording_stream_url(viewer: Viewer, recording: Path) -> str:
+    if not viewer.url:
+        raise RuntimeError("Recording viewer is not running")
+    return f"{viewer.url}/stream/{quote(recording.name, safe='')}"
 
 
 def recording_control_urls(token: str) -> dict[str, str]:

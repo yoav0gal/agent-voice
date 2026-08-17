@@ -7,6 +7,7 @@ import html
 import json
 import math
 import os
+import struct
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -16,17 +17,12 @@ from socketserver import TCPServer
 from string import Template
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
-from markdown_it import MarkdownIt
-from pygments import highlight
-from pygments.formatters import HtmlFormatter
-from pygments.lexers import get_lexer_by_name
-from pygments.util import ClassNotFound
-
 from . import __version__
 from .audio import PLAYBACK_ACTIONS, PlaybackController, write_audio
 from .config import load_defaults
 from .media import CONTENT_TYPES
 from .model import NamedVoice, SynthesisRequest
+from .paths import pending_generation_path, streaming_pcm_path
 from .registry import MODEL_REGISTRY
 from .viewer import (
     control_mapping_path,
@@ -34,43 +30,13 @@ from .viewer import (
     language_path,
     player_mapping_path,
     source_path,
-    transcript_path,
     valid_control_token,
     VIEWER_PROTOCOL,
 )
 
 
 DEFAULT_VIEWER_PORT = 8779
-_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
-
-
-def _syntax_css(style: str) -> str:
-    return "\n".join(
-        line
-        for line in HtmlFormatter(style=style)
-        .get_style_defs(".response pre code")
-        .splitlines()
-        if line.startswith(".response pre code .")
-    )
-
-
-_CODE_FORMATTER = HtmlFormatter(nowrap=True)
-_PYGMENTS_LIGHT_CSS = _syntax_css("friendly")
-_PYGMENTS_DARK_CSS = _syntax_css("github-dark")
-
-
-def _highlight_code(source: str, language: str, _attrs: str) -> str:
-    try:
-        lexer = get_lexer_by_name(language)
-    except ClassNotFound:
-        return ""
-    return highlight(source, lexer, _CODE_FORMATTER)
-
-
-_MARKDOWN = MarkdownIt(
-    "gfm-like2",
-    {"breaks": True, "highlight": _highlight_code, "html": False},
-)
+_CLEANUP_INTERVAL_SECONDS = 60 * 60
 
 
 class Server(ThreadingHTTPServer):
@@ -216,12 +182,32 @@ class Handler(BaseHTTPRequestHandler):
         prefix = next(
             (
                 value
-                for value in ("/recordings/", "/player/")
+                for value in ("/recordings/", "/player/", "/stream/")
                 if url.path.startswith(value)
             ),
             None,
         )
         encoded = url.path.removeprefix(prefix or "")
+        if prefix == "/stream/":
+            recording = self._stream_recording(encoded, server)
+            if recording is None:
+                self.send_error(404)
+            elif pending_generation_path(recording).is_file():
+                if streaming_pcm_path(recording).is_file():
+                    self._send_pcm_stream(recording, head)
+                else:
+                    self.send_error(425, "Recording stream is not ready")
+            else:
+                try:
+                    completed = self._recording(encoded, server)
+                except Exception:
+                    self.send_error(503, "Recording regeneration failed")
+                    return
+                if completed is None:
+                    self.send_error(404)
+                else:
+                    self._send_recording_file(completed, encoded, server, head)
+            return
         try:
             recording = (
                 self._player_recording(encoded, server)
@@ -235,18 +221,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
         elif prefix == "/player/":
             self._send(_player(recording), "text/html; charset=utf-8", head)
+        elif pending_generation_path(recording).is_file():
+            self.send_error(425, "Recording is still being generated")
         else:
-            content_type = CONTENT_TYPES[recording.suffix.lower().lstrip(".")]
-            if not self._send_file(recording, content_type, head):
-                try:
-                    recording = self._recording(encoded, server)
-                except Exception:
-                    self.send_error(503, "Recording regeneration failed")
-                    return
-                if recording is None or not self._send_file(
-                    recording, content_type, head
-                ):
-                    self.send_error(404)
+            self._send_recording_file(recording, encoded, server, head)
+
+    def _send_recording_file(
+        self,
+        recording: Path,
+        encoded: str,
+        server: Server,
+        head: bool,
+    ) -> None:
+        content_type = CONTENT_TYPES[recording.suffix.lower().lstrip(".")]
+        if self._send_file(recording, content_type, head):
+            return
+        try:
+            recording = self._recording(encoded, server)
+        except Exception:
+            self.send_error(503, "Recording regeneration failed")
+            return
+        if recording is None or not self._send_file(recording, content_type, head):
+            self.send_error(404)
 
     def _player_recording(self, encoded: str, server: Server) -> Path | None:
         try:
@@ -271,6 +267,14 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, UnicodeError):
             return None
         return self._recording(quote(recording_name, safe=""), server)
+
+    def _stream_recording(self, encoded: str, server: Server) -> Path | None:
+        try:
+            name = unquote(encoded, errors="strict")
+        except (UnicodeError, ValueError):
+            return None
+        recording = self._recording_path(name, server)
+        return recording
 
     def _control_target(self, path: str, server: Server) -> tuple[Path, str] | None:
         if not path.startswith("/control/"):
@@ -307,6 +311,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self._recording_path(name, server)
         if path is None:
             return None
+        if pending_generation_path(path).is_file():
+            return path if path.is_file() else None
         if not path.is_file():
             with server.regeneration_lock:
                 if not path.is_file():
@@ -314,13 +320,42 @@ class Handler(BaseHTTPRequestHandler):
                         metadata.is_file()
                         for metadata in (
                             source_path(path),
-                            transcript_path(path),
                             language_path(path),
                         )
                     ):
                         return None
                     _regenerate_recording(path)
         return path if path.is_file() else None
+
+    def _send_pcm_stream(self, recording: Path, head: bool) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Cache-Control", "private, no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        if head:
+            return
+
+        stream_path = streaming_pcm_path(recording)
+        pending = pending_generation_path(recording)
+        try:
+            self.wfile.write(_streaming_wav_header())
+            offset = 0
+            while True:
+                with stream_path.open("rb") as stream:
+                    stream.seek(offset)
+                    chunk = stream.read(64 * 1024)
+                if chunk:
+                    offset += len(chunk)
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                elif pending.is_file():
+                    time.sleep(0.05)
+                else:
+                    return
+        except OSError:
+            return
 
     def _recording_path(self, name: str, server: Server) -> Path | None:
         try:
@@ -488,7 +523,7 @@ def _playback_delay(query: str) -> float | None:
 def _player(recording: Path) -> bytes:
     name = recording.name
     try:
-        response_text = transcript_path(recording).read_text(encoding="utf-8")
+        response_text = source_path(recording).read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         response_text = ""
     template = Template(
@@ -496,16 +531,34 @@ def _player(recording: Path) -> bytes:
         .joinpath("templates", "recording.html")
         .read_text(encoding="utf-8")
     )
+    streaming = pending_generation_path(recording).is_file()
     return template.substitute(
         BRAND_ICON=_image_data_url("brand-icon.svg"),
         PAGE_TITLE=html.escape(f"{name} · Agent Voice", quote=True),
-        PYGMENTS_DARK=_PYGMENTS_DARK_CSS,
-        PYGMENTS_LIGHT=_PYGMENTS_LIGHT_CSS,
         RECORDING_NAME=html.escape(name, quote=True),
-        MEDIA_SOURCE=f"/recordings/{quote(name, safe='')}",
-        MEDIA_TYPE=CONTENT_TYPES[recording.suffix.lower().lstrip(".")],
-        RESPONSE_TEXT=_MARKDOWN.render(response_text),
+        MEDIA_SOURCE=(
+            f"/stream/{quote(name, safe='')}"
+            if streaming
+            else f"/recordings/{quote(name, safe='')}"
+        ),
+        MEDIA_TYPE=(
+            "audio/wav"
+            if streaming
+            else CONTENT_TYPES[recording.suffix.lower().lstrip(".")]
+        ),
+        RESPONSE_TEXT=html.escape(response_text),
     ).encode()
+
+
+def _streaming_wav_header() -> bytes:
+    return (
+        b"RIFF"
+        + struct.pack("<I", 0xFFFFFFFF)
+        + b"WAVEfmt "
+        + struct.pack("<IHHIIHH", 16, 1, 1, 24_000, 48_000, 2, 16)
+        + b"data"
+        + struct.pack("<I", 0xFFFFFFFF)
+    )
 
 
 def _regenerate_recording(recording: Path) -> None:

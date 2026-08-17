@@ -12,6 +12,7 @@ import wave
 from pathlib import Path
 
 import imageio_ffmpeg
+from agent_voice.media import CONTENT_TYPES, generating_audio
 
 SERVICE_URL = "http://127.0.0.1:18765"
 
@@ -129,6 +130,9 @@ def main() -> None:
     output_dir = Path(os.environ["RUNNER_TEMP"]) / "agent-voice-package-e2e"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    for audio_format in CONTENT_TYPES:
+        assert generating_audio(audio_format)
+
     subprocess.run([str(cli), "setup", "--model", "int8"], check=True)
     offline_doctor = run_cli(cli, "doctor", "--service-url", SERVICE_URL, "--json")
     check_doctor(offline_doctor, "warn")
@@ -200,18 +204,27 @@ def main() -> None:
             )
             check_doctor(online_doctor, "pass")
 
-            service_wav = output_dir / "service.wav"
             remote = run_cli(
                 cli,
                 "speak",
                 f"{system} localhost service verification.",
                 "--service-url",
                 SERVICE_URL,
-                "--output",
-                str(service_wav),
+                "--label",
+                "Package Service E2E",
+                "--format",
+                "wav",
             )
+            service_wav = Path(str(remote["path"]))
             assert remote["backend"] == "service"
+            assert remote["generation"] == {"state": "started"}
+            assert "stream_url" in remote["delivery"]
             assert "playback" not in remote
+            pending = service_wav.with_name(f".{service_wav.name}.pending")
+            deadline = time.monotonic() + 120
+            while pending.is_file() and time.monotonic() < deadline:
+                time.sleep(0.1)
+            assert not pending.exists(), "background generation did not finish"
             validate_wav(service_wav)
         finally:
             service.terminate()

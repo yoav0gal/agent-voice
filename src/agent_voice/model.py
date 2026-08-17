@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -152,3 +153,5 @@ class SpeechModel(Protocol):
     def voice_catalog(self) -> VoiceCatalog: ...
 
     def synthesize(self, request: SynthesisRequest) -> Speech: ...
+
+    def synthesize_stream(self, request: SynthesisRequest) -> Iterator[Speech]: ...

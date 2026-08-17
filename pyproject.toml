@@ -1,6 +1,6 @@
 [project]
 name = "agent-voice"
-version = "0.8.0"
+version = "0.9.0"
 description = "Local, free voice artifacts for AI agents"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -24,11 +24,8 @@ dependencies = [
   "filelock>=3.20,<4",
   "imageio-ffmpeg==0.6.0",
   "kokoro-onnx==0.5.0",
-  "linkify-it-py>=2,<3",
-  "markdown-it-py>=4.2,<5",
   "miniaudio==1.71",
   "numpy>=2,<3",
-  "pygments>=2.19,<3",
 ]
 
 [project.urls]

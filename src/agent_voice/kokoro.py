@@ -8,7 +8,7 @@ import tempfile
 import threading
 import time
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Protocol
 
@@ -39,6 +39,9 @@ KOKORO_MODEL_ID = "kokoro"
 KOKORO_DISPLAY_NAME = "Kokoro-82M"
 KOKORO_RUNTIME_NAME = "kokoro-onnx"
 KOKORO_NATURAL_SPEED = 1.0
+KOKORO_MAX_TEXT_CHARACTERS = 50_000
+# Voice styles are indexed by token count, so the 510-row table ends at 509.
+KOKORO_MAX_PHONEMES = 509
 DEFAULT_KOKORO_VARIANT = "int8"
 RELEASE_BASE = (
     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
@@ -88,6 +91,10 @@ class _KokoroRuntime(Protocol):
     def create(
         self, text: str, *, voice: str, speed: float, lang: str
     ) -> tuple[NDArray[np.floating], int]: ...
+
+    def create_chunks(
+        self, text: str, *, voice: str, speed: float, lang: str
+    ) -> Iterator[tuple[NDArray[np.floating], int]]: ...
 
 
 RuntimeFactory = Callable[[Path, Path], _KokoroRuntime]
@@ -196,11 +203,49 @@ class KokoroAdapter:
         )
 
     def synthesize(self, request: SynthesisRequest) -> Speech:
+        text, runtime, voice, language = self._prepare_request(request)
+        started = time.perf_counter()
+        with self._inference_lock:
+            samples, sample_rate = runtime.create(
+                text,
+                voice=voice,
+                speed=KOKORO_NATURAL_SPEED,
+                lang=language,
+            )
+        samples = change_tempo(samples, sample_rate, float(request.speed))
+        return Speech(samples, sample_rate, time.perf_counter() - started)
+
+    def synthesize_stream(self, request: SynthesisRequest) -> Iterator[Speech]:
+        text, runtime, voice, language = self._prepare_request(request)
+        with self._inference_lock:
+            chunks = iter(
+                runtime.create_chunks(
+                    text,
+                    voice=voice,
+                    speed=KOKORO_NATURAL_SPEED,
+                    lang=language,
+                )
+            )
+            while True:
+                started = time.perf_counter()
+                try:
+                    samples, sample_rate = next(chunks)
+                except StopIteration:
+                    break
+                samples = change_tempo(samples, sample_rate, float(request.speed))
+                yield Speech(samples, sample_rate, time.perf_counter() - started)
+
+    def _prepare_request(
+        self, request: SynthesisRequest
+    ) -> tuple[str, _KokoroRuntime, str, str]:
         text = request.text.strip()
         if not text:
             raise ValueError("Text cannot be empty")
-        if len(text) > 20_000:
-            raise ValueError("Text is too long (maximum 20,000 characters per request)")
+        if len(text) > KOKORO_MAX_TEXT_CHARACTERS:
+            raise ValueError(
+                "Text is too long "
+                f"(maximum {KOKORO_MAX_TEXT_CHARACTERS:,} characters per request)"
+            )
         if (
             isinstance(request.speed, bool)
             or not isinstance(request.speed, (int, float))
@@ -226,16 +271,7 @@ class KokoroAdapter:
         if voice not in runtime.get_voices():
             raise ValueError(f"Unknown voice '{voice}'")
 
-        started = time.perf_counter()
-        with self._inference_lock:
-            samples, sample_rate = runtime.create(
-                text,
-                voice=voice,
-                speed=KOKORO_NATURAL_SPEED,
-                lang=language,
-            )
-        samples = change_tempo(samples, sample_rate, float(request.speed))
-        return Speech(samples, sample_rate, time.perf_counter() - started)
+        return text, runtime, voice, language
 
     @property
     def variant(self) -> str:
@@ -277,7 +313,41 @@ class KokoroAdapter:
 def _load_runtime(model: Path, voices: Path) -> _KokoroRuntime:
     from kokoro_onnx import Kokoro
 
-    return Kokoro(str(model), str(voices))
+    class AgentVoiceKokoro(Kokoro):
+        @staticmethod
+        def _split_phonemes(phonemes: str) -> list[str]:
+            return _split_phonemes(phonemes)
+
+        def create_chunks(self, text: str, *, voice: str, speed: float, lang: str):
+            phonemes = self.tokenizer.phonemize(text, lang)
+            for chunk in _split_phonemes(phonemes):
+                yield self.create(
+                    chunk,
+                    voice=voice,
+                    speed=speed,
+                    lang=lang,
+                    is_phonemes=True,
+                )
+
+    return AgentVoiceKokoro(str(model), str(voices))
+
+
+def _split_phonemes(phonemes: str) -> list[str]:
+    """Keep every phoneme while preferring natural batch boundaries."""
+    chunks: list[str] = []
+    remaining = phonemes.strip()
+    while len(remaining) > KOKORO_MAX_PHONEMES:
+        window = remaining[:KOKORO_MAX_PHONEMES]
+        split_at = max(window.rfind(mark) for mark in ".,!?;:") + 1
+        if split_at <= 1:
+            split_at = window.rfind(" ")
+        if split_at <= 0:
+            split_at = KOKORO_MAX_PHONEMES
+        chunks.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
 
 
 def _valid_asset(path: Path, asset: Asset) -> bool:

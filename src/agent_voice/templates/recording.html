@@ -7,29 +7,20 @@
     http-equiv="Content-Security-Policy"
     content="default-src 'none'; img-src data:; media-src 'self'; style-src 'unsafe-inline'"
   >
-  <link
-    rel="icon"
-    type="image/svg+xml"
-    sizes="any"
-    href="$BRAND_ICON"
-  >
+  <link rel="icon" type="image/svg+xml" sizes="any" href="$BRAND_ICON">
   <title>$PAGE_TITLE</title>
   <style>
     :root {
       color-scheme: light dark;
       --background: #fffaf7;
       --foreground: #211c1a;
-      --muted: #635752;
+      --muted: #746761;
       --surface: #f2ebe7;
       --border: #d8cec8;
-      --quote: #c8b8af;
-      --link: #1d4ed8;
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: var(--background);
       color: var(--foreground);
     }
-
-    $PYGMENTS_LIGHT
 
     @media (prefers-color-scheme: dark) {
       :root {
@@ -38,213 +29,99 @@
         --muted: #b9aaa2;
         --surface: #26201d;
         --border: #493d37;
-        --quote: #6b554b;
-        --link: #8ab4ff;
       }
-
-      $PYGMENTS_DARK
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
-      padding: 2rem 1rem;
+      padding: 1.5rem 1rem;
       background: var(--background);
     }
 
     main {
-      width: min(100%, 48rem);
+      width: min(100%, 32rem);
       margin: 0 auto;
     }
 
-    h1 {
-      margin: 0 0 1rem;
-      font-size: clamp(1.25rem, 3vw, 1.5rem);
-      overflow-wrap: anywhere;
-    }
-
-    h2 {
-      margin: 2rem 0 0.75rem;
-      font-size: 0.875rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .recording {
+    header {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.625rem;
+      margin-bottom: 1rem;
     }
 
-    .recording-icon {
-      flex: 0 0 auto;
-      width: 4rem;
-      height: 4rem;
-      object-fit: contain;
+    header img {
+      width: 2.5rem;
+      height: 2.5rem;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.125rem;
+    }
+
+    header p {
+      margin: 0.125rem 0 0;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      overflow-wrap: anywhere;
     }
 
     audio {
       display: block;
-      min-width: 0;
       width: 100%;
     }
 
-    section {
-      margin-top: 2rem;
-    }
-
-    .response {
-      overflow-wrap: anywhere;
-      line-height: 1.6;
-    }
-
-    .response > :first-child {
-      margin-top: 0;
-    }
-
-    .response > :last-child {
-      margin-bottom: 0;
-    }
-
-    .response h1,
-    .response h2,
-    .response h3 {
-      margin: 1.5rem 0 0.5rem;
-      letter-spacing: normal;
-      text-transform: none;
-    }
-
-    .response h1 {
-      font-size: 1.5rem;
-    }
-
-    .response h2 {
-      font-size: 1.25rem;
-    }
-
-    .response h3 {
-      font-size: 1.1rem;
-    }
-
-    .response a {
-      color: var(--link);
-      text-underline-offset: 0.15em;
-    }
-
-    .response blockquote {
-      margin: 1rem 0;
-      padding: 0.1rem 1rem;
-      border-left: 0.25rem solid var(--quote);
+    .hint {
+      margin: 0.75rem 0 0;
       color: var(--muted);
+      font-size: 0.875rem;
+      line-height: 1.4;
     }
 
-    .response ul,
-    .response ol {
-      padding-left: 1.5rem;
-    }
-
-    .response li + li {
-      margin-top: 0.25rem;
-    }
-
-    .response .contains-task-list,
-    .response .task-list-item {
-      list-style: none;
-    }
-
-    .response .contains-task-list {
-      padding-left: 0;
-    }
-
-    .response .task-list-item-checkbox {
-      margin: 0 0.5rem 0 0;
-      accent-color: var(--link);
-    }
-
-    .response pre {
-      overflow-x: auto;
-      padding: 0.75rem;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      border-radius: 0.5rem;
-    }
-
-    .response code {
-      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    }
-
-    .response :not(pre) > code {
-      padding: 0.1em 0.3em;
-      background: var(--surface);
-      border-radius: 0.25rem;
-      font-size: 0.9em;
-    }
-
-    .response table {
-      display: block;
-      max-width: 100%;
-      overflow-x: auto;
-      border-collapse: collapse;
-    }
-
-    .response thead {
-      background: var(--surface);
-    }
-
-    .response th,
-    .response td {
-      padding: 0.4rem 0.6rem;
-      border: 1px solid var(--border);
-      text-align: left;
-    }
-
-    .response hr {
-      border: 0;
+    details {
+      margin-top: 1rem;
       border-top: 1px solid var(--border);
+      padding-top: 0.875rem;
     }
 
-    .response img {
-      max-width: 100%;
-      height: auto;
+    summary {
+      cursor: pointer;
+      font-weight: 650;
+      font-size: 0.875rem;
     }
 
-    .response .markdown-alert {
-      margin: 1rem 0;
-      padding: 0.25rem 1rem;
-      border-left: 0.25rem solid var(--link);
+    .narration {
+      margin: 0.75rem 0 0;
+      padding: 0.875rem;
+      border-radius: 0.5rem;
       background: var(--surface);
-    }
-
-    .response .markdown-alert-title {
-      margin-bottom: 0;
-      color: var(--foreground);
-      font-weight: 700;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
   </style>
 </head>
 <body>
   <main>
-    <h1>$RECORDING_NAME</h1>
-    <div class="recording">
-      <audio controls preload="metadata">
-        <source src="$MEDIA_SOURCE" type="$MEDIA_TYPE">
-        <a href="$MEDIA_SOURCE">Open the recording</a>
-      </audio>
-      <img
-        class="recording-icon"
-        src="$BRAND_ICON"
-        alt=""
-        width="128"
-        height="128"
-        aria-hidden="true"
-      >
-    </div>
-    <section>
-      <div class="response">$RESPONSE_TEXT</div>
-    </section>
+    <header>
+      <img src="$BRAND_ICON" alt="" width="128" height="128" aria-hidden="true">
+      <div>
+        <h1>Agent Voice</h1>
+        <p>$RECORDING_NAME</p>
+      </div>
+    </header>
+    <audio controls preload="metadata">
+      <source src="$MEDIA_SOURCE" type="$MEDIA_TYPE">
+      <a href="$MEDIA_SOURCE">Open the recording</a>
+    </audio>
+    <p class="hint">Listen here. Read the full response in your conversation.</p>
+    <details>
+      <summary>Narration text</summary>
+      <p class="narration">$RESPONSE_TEXT</p>
+    </details>
   </main>
 </body>
 </html>

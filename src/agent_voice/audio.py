@@ -4,6 +4,7 @@ import os
 import subprocess
 import tempfile
 import threading
+import time
 import wave
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .config import FORMATS, MAX_SPEED, MIN_SPEED
+from .paths import pending_generation_path, streaming_pcm_path
 
 PLAYBACK_SAMPLE_RATE = 24_000
 PLAYBACK_CHANNELS = 1
@@ -75,13 +77,16 @@ class PlaybackController:
         self._command_lock = threading.Lock()
         self._lock = threading.Lock()
         self._recording: Path | None = None
-        self._source_pcm = b""
-        self._pcm = b""
+        self._source_pcm: bytes | bytearray = b""
+        self._pcm: bytes | bytearray = b""
         self._offset = 0
         self._speed = 1.0
         self._playing = False
         self._closed = False
         self._silence = b""
+        self._stream_path: Path | None = None
+        self._stream_token = 0
+        self._retiming = False
         self._device: miniaudio.PlaybackDevice | None = None
         self._stream: Generator[bytes | memoryview, int, None] | None = None
 
@@ -95,8 +100,15 @@ class PlaybackController:
                 raise RuntimeError("Playback controller is closed")
             with self._lock:
                 changed = self._recording != path
+                if changed:
+                    self._stream_token += 1
             if changed:
-                pcm = self._decoder(path)
+                pending = pending_generation_path(path)
+                stream_path = streaming_pcm_path(path)
+                streaming = pending.is_file() and stream_path.is_file()
+                pcm: bytes | bytearray = (
+                    bytearray() if streaming else self._decoder(path)
+                )
                 with self._lock:
                     self._recording = path
                     self._source_pcm = pcm
@@ -104,6 +116,10 @@ class PlaybackController:
                     self._offset = 0
                     self._speed = 1.0
                     self._playing = False
+                    self._stream_path = stream_path if streaming else None
+                    stream_token = self._stream_token
+                if streaming:
+                    self._start_stream_worker(path, stream_path, stream_token)
 
             if action in ("slower", "faster"):
                 with self._lock:
@@ -112,41 +128,70 @@ class PlaybackController:
                     speed = PLAYBACK_SPEEDS[
                         min(max(0, index + step), len(PLAYBACK_SPEEDS) - 1)
                     ]
-                    source_pcm = self._source_pcm
+                    source_pcm = bytes(self._source_pcm)
                     current_speed = self._speed
+                    streaming = self._stream_path is not None
+                    if speed != current_speed and streaming:
+                        self._retiming = True
                 if speed != current_speed:
                     # ponytail: rebuild one full PCM buffer per speed click; cache
                     # variants only if real recordings make latency or memory hurt.
-                    pcm = self._tempo_changer(source_pcm, speed)
+                    try:
+                        pcm = (
+                            self._tempo_changer(source_pcm, speed)
+                            if source_pcm
+                            else b""
+                        )
+                    except Exception:
+                        with self._lock:
+                            self._retiming = False
+                        raise
                     with self._lock:
                         source_offset = self._source_offset()
-                        self._pcm = pcm
+                        self._pcm = (
+                            self._source_pcm
+                            if speed == 1.0
+                            else bytearray(pcm)
+                            if streaming
+                            else pcm
+                        )
                         self._speed = speed
                         self._offset = self._playback_offset(source_offset)
-                        if self._offset >= len(self._pcm):
+                        self._retiming = False
+                        if (
+                            self._offset >= len(self._pcm)
+                            and not self._streaming_locked()
+                        ):
                             self._playing = False
 
             with self._lock:
                 if action == "toggle":
-                    if self._offset >= len(self._pcm):
+                    if self._offset >= len(self._pcm) and not self._streaming_locked():
                         self._offset = 0
                     self._playing = True if changed else not self._playing
                 elif action == "restart":
                     self._offset = 0
                     self._playing = True
                 elif action in ("back", "forward"):
-                    seconds = (
-                        -PLAYBACK_SEEK_SECONDS
-                        if action == "back"
-                        else PLAYBACK_SEEK_SECONDS
+                    delta = (
+                        PLAYBACK_SEEK_SECONDS
+                        * PLAYBACK_SAMPLE_RATE
+                        * PLAYBACK_SAMPLE_WIDTH
                     )
-                    delta = seconds * PLAYBACK_SAMPLE_RATE * PLAYBACK_SAMPLE_WIDTH
-                    source_offset = min(
-                        max(0, self._source_offset() + delta), len(self._source_pcm)
-                    )
-                    self._offset = self._playback_offset(source_offset)
-                    if source_offset >= len(self._source_pcm):
-                        self._playing = False
+                    source_offset = self._source_offset()
+                    target = source_offset + (delta if action == "forward" else -delta)
+                    if (
+                        action == "back"
+                        or target <= len(self._source_pcm)
+                        or self._streaming_locked()
+                    ):
+                        source_offset = min(max(0, target), len(self._source_pcm))
+                        self._offset = self._playback_offset(source_offset)
+                        if (
+                            source_offset >= len(self._source_pcm)
+                            and not self._streaming_locked()
+                        ):
+                            self._playing = False
                 playing = self._playing
             try:
                 self._sync_device(playing)
@@ -158,6 +203,9 @@ class PlaybackController:
                     self._offset = 0
                     self._speed = 1.0
                     self._playing = False
+                    self._stream_path = None
+                    self._stream_token += 1
+                    self._retiming = False
                 raise
             with self._lock:
                 return self._state()
@@ -167,6 +215,9 @@ class PlaybackController:
             self._closed = True
             with self._lock:
                 self._playing = False
+                self._stream_path = None
+                self._stream_token += 1
+                self._retiming = False
             self._discard_device()
 
     def _sync_device(self, playing: bool) -> None:
@@ -225,18 +276,95 @@ class PlaybackController:
                 if self._playing and self._offset < len(self._pcm):
                     start = self._offset
                     self._offset = min(start + requested_bytes, len(self._pcm))
-                    chunk: bytes | memoryview = memoryview(self._pcm)[
-                        start : self._offset
-                    ]
-                    if self._offset >= len(self._pcm):
+                    chunk: bytes | memoryview = bytes(self._pcm[start : self._offset])
+                    if self._offset >= len(self._pcm) and not self._streaming_locked():
                         # ponytail: completion feeds silence; add an idle monitor if
                         # holding the audio device becomes a real resource problem.
                         self._playing = False
                 else:
+                    if self._playing and not self._streaming_locked():
+                        self._playing = False
                     if len(self._silence) < requested_bytes:
                         self._silence = bytes(requested_bytes)
                     chunk = memoryview(self._silence)[:requested_bytes]
             required_frames = yield chunk
+
+    def _start_stream_worker(
+        self, recording: Path, stream_path: Path, token: int
+    ) -> None:
+        thread = threading.Thread(
+            target=self._consume_stream,
+            args=(recording, stream_path, token),
+            daemon=True,
+            name="agent-voice-stream",
+        )
+        thread.start()
+
+    def _consume_stream(self, recording: Path, stream_path: Path, token: int) -> None:
+        offset = 0
+        try:
+            with stream_path.open("rb") as stream:
+                while True:
+                    with self._lock:
+                        if token != self._stream_token:
+                            return
+                        retiming = self._retiming
+                        speed = self._speed
+                    if retiming:
+                        time.sleep(0.05)
+                        continue
+
+                    stream.seek(offset)
+                    chunk = stream.read()
+                    if chunk:
+                        changed = (
+                            chunk if speed == 1.0 else self._tempo_changer(chunk, speed)
+                        )
+                        with self._lock:
+                            if token != self._stream_token:
+                                return
+                            if self._retiming or speed != self._speed:
+                                continue
+                            source = self._source_pcm
+                            if not isinstance(source, bytearray):
+                                return
+                            source.extend(chunk)
+                            if self._pcm is not source:
+                                if not isinstance(self._pcm, bytearray):
+                                    return
+                                self._pcm.extend(changed)
+                            offset += len(chunk)
+                    elif pending_generation_path(recording).is_file():
+                        time.sleep(0.05)
+                    else:
+                        try:
+                            completed = (
+                                recording.is_file() and recording.stat().st_size > 0
+                            )
+                        except OSError:
+                            completed = False
+                        with self._lock:
+                            if token == self._stream_token:
+                                self._stream_path = None
+                                if not completed:
+                                    self._recording = None
+                                    self._source_pcm = b""
+                                    self._pcm = b""
+                                    self._offset = 0
+                                    self._playing = False
+                        return
+        except Exception:
+            with self._lock:
+                if token == self._stream_token:
+                    self._stream_path = None
+                    self._recording = None
+                    self._source_pcm = b""
+                    self._pcm = b""
+                    self._offset = 0
+                    self._playing = False
+
+    def _streaming_locked(self) -> bool:
+        return self._stream_path is not None
 
     def _state(self) -> PlaybackState:
         if self._recording is None:
@@ -345,12 +473,17 @@ def change_tempo(
     return np.frombuffer(completed.stdout, dtype="<f4").copy()
 
 
+def pcm16_bytes(samples: NDArray[np.floating]) -> bytes:
+    values = np.asarray(samples, dtype=np.float32).reshape(-1)
+    return np.clip(np.rint(values * 32_768), -32_768, 32_767).astype("<i2").tobytes()
+
+
 def _change_pcm_tempo(pcm: bytes, factor: float) -> bytes:
     if factor == 1.0:
         return pcm
     samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32_768
     changed = change_tempo(samples, PLAYBACK_SAMPLE_RATE, factor)
-    return np.clip(np.rint(changed * 32_768), -32_768, 32_767).astype("<i2").tobytes()
+    return pcm16_bytes(changed)
 
 
 def _tempo_factors(factor: float) -> list[float]:

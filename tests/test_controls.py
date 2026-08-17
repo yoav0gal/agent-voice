@@ -67,8 +67,11 @@ def test_install_handler_builds_registers_and_reuses_owned_macos_app(
     assert "UTExportedTypeDeclarations" not in info
     script = commands[0][-1]
     assert "on open location theURL" in script
+    assert "set idleTicks to 0" in script
+    assert "if idleTicks >= 5 then quit" in script
     assert "on open controlFiles" not in script
     assert "quoted form of controlValue" in script
+    assert commands[0][1] == "-s"
     assert sum(command[0].endswith("lsregister") for command in commands) == 2
     assert defaults == [True, True]
 

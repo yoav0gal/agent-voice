@@ -74,6 +74,7 @@ def ensure_service(
     selection: ModelSelection,
     idle_timeout_minutes: float | None,
     startup_timeout: float = 10.0,
+    required_feature: str | None = None,
 ) -> dict[str, object]:
     """Start one detached localhost service and wait until it is healthy."""
     url = validate_service_url(service_url)
@@ -95,7 +96,12 @@ def ensure_service(
             except ServiceUnavailable:
                 pass
             else:
-                return _require_matching_model(health, selection)
+                matched = _require_matching_model(health, selection)
+                if required_feature is None or required_feature in matched.get(
+                    "features", []
+                ):
+                    return matched
+                stop_service(url)
 
             lifecycle = (
                 "no idle timeout"
@@ -147,6 +153,12 @@ def ensure_service(
                         time.sleep(0.05)
                     else:
                         matched = _require_matching_model(health, selection)
+                        if required_feature is not None and required_feature not in (
+                            matched.get("features", [])
+                        ):
+                            raise ServiceUnavailable(
+                                f"service does not support {required_feature}"
+                            )
                         ready = True
                         return matched
                 raise ServiceUnavailable(f"service did not become ready: {last_error}")
@@ -167,7 +179,7 @@ def request_speech(
     lang: str,
     *,
     selection: ModelSelection | None = None,
-    timeout: float = 300,
+    timeout: float = 7_200,
 ) -> Recording:
     if selection is not None:
         _require_matching_model(health_check(service_url), selection)
@@ -180,7 +192,8 @@ def request_speech(
             "lang": lang,
             "response_format": audio_format,
             "play": False,
-        }
+        },
+        ensure_ascii=False,
     ).encode()
     request = urllib.request.Request(
         url,
@@ -214,6 +227,93 @@ def request_speech(
         generation_seconds=_number_header(
             headers.get("X-Agent-Voice-Generation-Seconds"), float
         ),
+        backend="service",
+    )
+
+
+def request_speech_background(
+    service_url: str,
+    text: str,
+    destination: Path,
+    audio_format: str,
+    voice: str,
+    speed: float,
+    lang: str,
+    *,
+    selection: ModelSelection,
+    timeout: float = 30,
+) -> Recording:
+    destination = destination.expanduser().resolve()
+    health = _require_matching_model(health_check(service_url), selection)
+    service_root = health.get("recording_root")
+    client_root = str(destination.parent)
+    if service_root != client_root:
+        raise ServiceUnavailable(
+            "localhost recording directory mismatch: "
+            f"client uses {client_root}; service uses {service_root or 'unknown'}. "
+            "Restart the service with the same Agent Voice runtime as the client"
+        )
+    if "streaming" not in health.get("features", []):
+        raise ServiceUnavailable(
+            "running service does not support streaming audio; restart it"
+        )
+    body = json.dumps(
+        {
+            "input": text,
+            "voice": voice,
+            "speed": speed,
+            "lang": lang,
+            "response_format": audio_format,
+            "play": False,
+            "background": {"recording_name": destination.name},
+        },
+        ensure_ascii=False,
+    ).encode()
+    request = urllib.request.Request(
+        validate_service_url(service_url) + "/v1/audio/speech",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read())
+            status = response.status
+    except urllib.error.HTTPError as error:
+        detail = _http_error_detail(error)
+        if 400 <= error.code < 500:
+            raise ValueError(
+                f"Agent Voice service rejected the request: {detail}"
+            ) from error
+        raise ServiceUnavailable(f"Agent Voice service failed: {detail}") from error
+    except (
+        OSError,
+        TimeoutError,
+        socket.timeout,
+        urllib.error.URLError,
+        json.JSONDecodeError,
+    ) as error:
+        raise ServiceUnavailable(
+            f"background speech request failed: {error}"
+        ) from error
+    if (
+        status != 202
+        or not isinstance(payload, dict)
+        or payload.get("state") != "started"
+        or payload.get("recording") != destination.name
+        or not destination.is_file()
+    ):
+        raise ServiceUnavailable(
+            "background speech request returned an invalid response"
+        )
+    return Recording(
+        path=destination,
+        format=audio_format,
+        voice=voice,
+        speed=speed,
+        sample_rate=None,
+        duration_seconds=None,
+        generation_seconds=None,
         backend="service",
     )
 

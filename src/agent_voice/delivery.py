@@ -12,6 +12,7 @@ from .viewer import (
     publish_player,
     publish_source,
     recording_control_urls,
+    recording_stream_url,
     recording_urls,
 )
 
@@ -20,6 +21,7 @@ from .viewer import (
 class Delivery:
     browser_url: str | None = None
     audio_url: str | None = None
+    stream_url: str | None = None
     recording_path: Path | None = None
     controls: dict[str, str] | None = None
     warning: str | None = None
@@ -29,7 +31,6 @@ def prepare_delivery(
     recording: Path,
     text: str,
     *,
-    source_text: str | None = None,
     language: str = "en-us",
     audio_format: str | None = None,
     recordings_dir: Path | None = None,
@@ -48,14 +49,14 @@ def prepare_delivery(
 
     try:
         published = publish_recording(path, resolved_format, recordings_dir)
-        source = text if source_text is None else source_text
-        publish_source(path, source)
+        publish_source(path, text)
         if published != path:
-            publish_source(published, source)
-        player_name = publish_player(published, text)
+            publish_source(published, text)
+        player_name = publish_player(published)
         publish_language(published, language)
         viewer = ensure_viewer(published.parent)
         browser_url, audio_url = recording_urls(viewer, published, player_name)
+        stream_url = recording_stream_url(viewer, published)
     except (OSError, RuntimeError) as error:
         return Delivery(
             warning=f"Could not start recording viewer; using file fallback ({error})",
@@ -74,6 +75,7 @@ def prepare_delivery(
     return Delivery(
         browser_url=browser_url,
         audio_url=audio_url,
+        stream_url=stream_url,
         recording_path=published,
         controls=control_urls,
         warning=warning,
