@@ -44,7 +44,6 @@ class SpeakRequest:
     play_after: float | None = None
     no_service: bool = False
     service_url: str = DEFAULT_SERVICE_URL
-    response_markdown: str | None = None
     controls: bool = False
 
 
@@ -91,7 +90,6 @@ class _OutputPlan:
 @dataclass(frozen=True)
 class _ResolvedSpeakRequest:
     text: str
-    response_markdown: str
     selection: ModelSelection
     output: _OutputPlan
     voice: str
@@ -114,7 +112,6 @@ class _DeliveryPreparer(Protocol):
         recording: Path,
         text: str,
         *,
-        source_text: str,
         language: str,
         audio_format: str,
         recordings_dir: Path,
@@ -228,8 +225,7 @@ class Speaker:
 
         delivery = self._delivery(
             recording.path,
-            resolved.response_markdown,
-            source_text=resolved.text,
+            resolved.text,
             language=resolved.language,
             audio_format=recording.format,
             recordings_dir=resolved.output.recording_root,
@@ -259,11 +255,6 @@ class Speaker:
     ) -> _ResolvedSpeakRequest:
         return _ResolvedSpeakRequest(
             text=request.text,
-            response_markdown=(
-                request.text
-                if request.response_markdown is None
-                else request.response_markdown
-            ),
             selection=request.selection,
             output=self._plan_output(request, defaults),
             voice=request.voice if request.voice is not None else defaults.voice,

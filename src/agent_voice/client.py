@@ -167,7 +167,7 @@ def request_speech(
     lang: str,
     *,
     selection: ModelSelection | None = None,
-    timeout: float = 300,
+    timeout: float = 7_200,
 ) -> Recording:
     if selection is not None:
         _require_matching_model(health_check(service_url), selection)
@@ -180,7 +180,8 @@ def request_speech(
             "lang": lang,
             "response_format": audio_format,
             "play": False,
-        }
+        },
+        ensure_ascii=False,
     ).encode()
     request = urllib.request.Request(
         url,

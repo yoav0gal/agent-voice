@@ -52,7 +52,6 @@ def delivery_success(calls: list | None = None):
         recording,
         text,
         *,
-        source_text,
         language,
         audio_format,
         recordings_dir,
@@ -63,7 +62,6 @@ def delivery_success(calls: list | None = None):
                 (
                     recording,
                     text,
-                    source_text,
                     language,
                     audio_format,
                     recordings_dir,
@@ -248,7 +246,7 @@ def test_environment_recording_root_overrides_config(tmp_path, monkeypatch):
     ).speak(SpeakRequest("Visible text.", SELECTION, no_service=True))
 
     assert receipt.recording.path.parent == environment
-    assert calls[0][5] == environment
+    assert calls[0][4] == environment
     assert not configured.exists()
 
 
@@ -288,7 +286,7 @@ def test_live_config_cli_and_environment_precedence(tmp_path, monkeypatch):
     assert receipt.recording.format == "wav"
     assert receipt.recording.voice == "af_nova"
     assert receipt.recording.speed == 1.15
-    assert calls[0][5] == environment
+    assert calls[0][4] == environment
 
 
 def test_exact_output_takes_precedence_and_extension_selects_format(tmp_path):
@@ -507,7 +505,6 @@ def test_delivery_receives_the_planned_recording_root(tmp_path):
         (
             output,
             "Visible text.",
-            "Visible text.",
             "en-us",
             "mp3",
             recording_root,
@@ -517,24 +514,22 @@ def test_delivery_receives_the_planned_recording_root(tmp_path):
     assert receipt.delivery.browser_url is not None
 
 
-def test_delivery_prefers_the_written_response(tmp_path):
+def test_delivery_uses_the_spoken_text(tmp_path):
     calls = []
 
     make_speaker(tmp_path, delivery=delivery_success(calls)).speak(
         SpeakRequest(
             "Spoken narration.",
             SELECTION,
-            response_markdown="# Written response",
             language="he-il",
             controls=True,
             no_service=True,
         )
     )
 
-    assert calls[0][1] == "# Written response"
-    assert calls[0][2] == "Spoken narration."
-    assert calls[0][3] == "he-il"
-    assert calls[0][6] is True
+    assert calls[0][1] == "Spoken narration."
+    assert calls[0][2] == "he-il"
+    assert calls[0][5] is True
 
 
 def test_delivery_failure_facts_are_typed_serialized_and_reported(tmp_path):
@@ -544,7 +539,6 @@ def test_delivery_failure_facts_are_typed_serialized_and_reported(tmp_path):
         recording,
         text,
         *,
-        source_text,
         language,
         audio_format,
         recordings_dir,

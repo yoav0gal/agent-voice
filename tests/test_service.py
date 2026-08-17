@@ -261,6 +261,28 @@ def test_health_and_speech_contract(tmp_path):
     assert (tmp_path / "service.wav").stat().st_size > 44
 
 
+def test_service_accepts_50_000_unicode_characters(tmp_path):
+    text = "א" * 50_000
+
+    class FakeModel:
+        def synthesize(self, request):
+            assert request.text == text
+            return Speech(np.zeros(240, dtype=np.float32), 24_000, 0.01)
+
+    with _running_server(FakeModel()) as (_, url):
+        result = request_speech(
+            url,
+            text,
+            tmp_path / "unicode.wav",
+            "wav",
+            "af_heart",
+            1.0,
+            "en-us",
+        )
+
+    assert result.path.exists()
+
+
 def test_health_remains_available_while_speech_is_running(tmp_path):
     synthesis_started = threading.Event()
     finish_synthesis = threading.Event()

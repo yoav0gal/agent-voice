@@ -27,11 +27,11 @@ from agent_voice.viewer import (
     publish_player,
     publish_recording,
     publish_source,
+    recording_player_url,
     recording_urls,
     recording_control_urls,
     source_path,
     stop_viewer,
-    transcript_path,
 )
 from agent_voice.viewer_server import DEFAULT_VIEWER_PORT, Handler, Server
 
@@ -61,14 +61,9 @@ def _running_viewer(recordings: Path):
 def test_viewer_serves_supported_audio_and_dynamic_player(tmp_path, name, content_type):
     recording = tmp_path / name
     recording.write_bytes(b"0123456789")
-    player_name = publish_player(
-        recording,
-        '# Visible **response**\n\n<script>alert("no")</script>\n\n'
-        "> A quotation\n\n- [x] Done\n- [ ] Pending\n\n"
-        "> [!NOTE]\n> An alert\n\nhttps://example.com\n\n"
-        '```python\nprint("hello")\n```\n\n'
-        "```not-a-language\n<plain>\n```",
-    )
+    narration = 'Visible response.\n<script>alert("no")</script>'
+    publish_source(recording, narration)
+    player_name = publish_player(recording)
 
     with _running_viewer(tmp_path) as (_, url):
         with urllib.request.urlopen(f"{url}/recordings/{name}") as response:
@@ -86,36 +81,17 @@ def test_viewer_serves_supported_audio_and_dynamic_player(tmp_path, name, conten
             assert 'rel="icon"' in document
             assert 'type="image/svg+xml"' in document
             assert 'href="data:image/svg+xml;base64,' in document
-            assert 'class="recording-icon"' in document
             assert document.count('src="data:image/svg+xml;base64,') == 1
-            assert ">Response</h2>" not in document
-            assert document.index("<audio ") < document.index('class="recording-icon"')
-            assert (
-                '<div class="response"><h1>Visible <strong>response</strong></h1>'
-                in document
-            )
-            assert '<ul class="contains-task-list">' in document
-            assert 'type="checkbox" checked=""' in document
-            assert '<span class="nb">print</span>' in document
-            assert '<span style="color:' not in document
-            assert "&quot;hello&quot;" in document
-            assert '<code class="language-not-a-language">&lt;plain&gt;' in document
-            assert "<blockquote>" in document
-            assert 'class="markdown-alert markdown-alert-note"' in document
-            assert '<a href="https://example.com">https://example.com</a>' in document
+            assert "<h1>Agent Voice</h1>" in document
+            assert "<summary>Narration text</summary>" in document
+            assert 'class="narration">Visible response.\n&lt;script&gt;' in document
+            assert "white-space: pre-wrap" in document
             assert "prefers-color-scheme: dark" in document
             assert "&lt;script&gt;" in document
             assert "<script>" not in document
 
     assert recording.is_file()
-    assert transcript_path(recording).is_file()
-    assert transcript_path(recording).read_text() == (
-        '# Visible **response**\n\n<script>alert("no")</script>\n\n'
-        "> A quotation\n\n- [x] Done\n- [ ] Pending\n\n"
-        "> [!NOTE]\n> An alert\n\nhttps://example.com\n\n"
-        '```python\nprint("hello")\n```\n\n'
-        "```not-a-language\n<plain>\n```"
-    )
+    assert source_path(recording).read_text() == narration
 
 
 def test_viewer_rejects_legacy_player_links(tmp_path):
@@ -136,13 +112,19 @@ def test_player_urls_keep_audio_formats_distinct(tmp_path):
     mp3.write_bytes(b"mp3")
     wav.write_bytes(b"wav")
 
-    mp3_name = publish_player(mp3, "MP3")
-    wav_name = publish_player(wav, "WAV")
-    mp3_url, _ = recording_urls(viewer, mp3, mp3_name)
-    wav_url, _ = recording_urls(viewer, wav, wav_name)
+    publish_source(mp3, "MP3")
+    publish_source(wav, "WAV")
+    mp3_name = publish_player(mp3)
+    wav_name = publish_player(wav)
+    mp3_url = recording_player_url(viewer, mp3_name)
+    wav_url = recording_player_url(viewer, wav_name)
+    _, mp3_audio_url = recording_urls(viewer, mp3, mp3_name)
+    _, wav_audio_url = recording_urls(viewer, wav, wav_name)
 
     assert mp3_url.endswith("/player/sample.html")
     assert wav_url.endswith("/player/sample-2.html")
+    assert mp3_audio_url.endswith("/recordings/sample.mp3")
+    assert wav_audio_url.endswith("/recordings/sample.wav")
     with _running_viewer(tmp_path) as (_, url):
         with urllib.request.urlopen(f"{url}/player/sample.html") as response:
             assert 'src="/recordings/sample.mp3"' in response.read().decode()
@@ -464,10 +446,10 @@ def test_expired_recordings_keep_sources_and_unmanaged_audio(tmp_path):
     for recording in (expired, fresh, unmanaged, unrelated_sidecar):
         recording.write_bytes(b"audio")
     publish_source(expired, "Editable old text.")
-    publish_player(expired, "Visible old text.")
+    publish_player(expired)
     publish_language(expired, "en-us")
     publish_source(fresh, "Editable fresh text.")
-    publish_player(fresh, "Visible fresh text.")
+    publish_player(fresh)
     publish_language(fresh, "en-us")
     publish_source(unrelated_sidecar, "Not Agent Voice metadata.")
     os.utime(expired, (now - delete_after - 1,) * 2)
@@ -486,7 +468,7 @@ def test_expired_recordings_keep_sources_and_unmanaged_audio(tmp_path):
 def test_viewer_regenerates_missing_audio_from_source(tmp_path, monkeypatch):
     recording = tmp_path / "requested.mp3"
     publish_source(recording, "Current editable text.")
-    publish_player(recording, "Visible response.")
+    publish_player(recording)
     publish_language(recording, "en-us")
     regenerated = []
 
@@ -507,7 +489,7 @@ def test_viewer_retries_when_cleanup_removes_audio_before_open(tmp_path, monkeyp
     recording = tmp_path / "requested.mp3"
     recording.write_bytes(b"expired")
     publish_source(recording, "Current editable text.")
-    publish_player(recording, "Visible response.")
+    publish_player(recording)
     publish_language(recording, "en-us")
     monkeypatch.setattr(
         viewer_server,
@@ -533,7 +515,7 @@ def test_viewer_retries_when_cleanup_removes_audio_before_open(tmp_path, monkeyp
 def test_viewer_reports_regeneration_failure(tmp_path, monkeypatch):
     recording = tmp_path / "requested.mp3"
     publish_source(recording, "Current editable text.")
-    publish_player(recording, "Visible response.")
+    publish_player(recording)
     publish_language(recording, "en-us")
     monkeypatch.setattr(
         viewer_server,

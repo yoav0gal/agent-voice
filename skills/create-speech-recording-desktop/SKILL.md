@@ -10,10 +10,7 @@ matching voice with `agent-voice voices` and pass `--voice` and `--lang`.
 
 ## Prepare
 
-Set `RESPONSE_AS_MARKDOWN` to the original text or Markdown. Set
-`RESPONSE_AS_TEXT` to its spoken form. Never use `RESPONSE_AS_MARKDOWN` as the
-speech input.
-Use real line breaks in `RESPONSE_AS_MARKDOWN`, not escaped `\n` text.
+Set `RESPONSE_AS_TEXT` to the text's spoken form.
 
 - For supplied text, preserve every word and punctuation mark in order while
   translating presentation syntax into speech.
@@ -24,13 +21,13 @@ Use real line breaks in `RESPONSE_AS_MARKDOWN`, not escaped `\n` text.
 ## Record
 
 ```sh
-agent-voice speak "$RESPONSE_AS_TEXT" --markdown "$RESPONSE_AS_MARKDOWN"
+agent-voice speak "$RESPONSE_AS_TEXT"
 ```
 
 For long text, use temporary files outside the workspace and remove them afterward:
 
 ```sh
-agent-voice speak --label "$LABEL" --response-file "$RESPONSE_AS_MARKDOWN_FILE" < "$RESPONSE_AS_TEXT_FILE"
+agent-voice speak --label "$LABEL" < "$RESPONSE_AS_TEXT_FILE"
 ```
 
 On Antigravity App, follow the special

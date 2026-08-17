@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from agent_voice import kokoro as kokoro_module
-from agent_voice.kokoro import KokoroAdapter
+from agent_voice.kokoro import KOKORO_MAX_PHONEMES, KokoroAdapter, _split_phonemes
 from agent_voice.model import (
     ModelSelection,
     NamedVoice,
@@ -20,11 +20,13 @@ from agent_voice.model import (
 class FakeKokoro:
     def __init__(self):
         self.speed = None
+        self.text = None
 
     def get_voices(self):
         return ["af_heart"]
 
     def create(self, text, voice, speed, lang):
+        self.text = text
         self.speed = speed
         return np.zeros(24_000, dtype=np.float32), 24_000
 
@@ -69,6 +71,26 @@ def test_speed_outside_supported_range_is_rejected(monkeypatch, speed):
     model, _ = fake_model(monkeypatch)
     with pytest.raises(ValueError, match="between 0.5 and 4.0"):
         model.synthesize(SynthesisRequest("Invalid speed", speed=speed))
+
+
+def test_kokoro_accepts_up_to_50_000_characters(monkeypatch):
+    model, runtime = fake_model(monkeypatch)
+    text = "a" * 50_000
+
+    model.synthesize(SynthesisRequest(text))
+
+    assert runtime.text == text
+    with pytest.raises(ValueError, match="maximum 50,000 characters"):
+        model.synthesize(SynthesisRequest(text + "a"))
+
+
+def test_phoneme_splitter_preserves_long_spans_at_the_batch_boundary():
+    phonemes = "a" * (KOKORO_MAX_PHONEMES - 1) + "." + "b" * (KOKORO_MAX_PHONEMES + 17)
+
+    chunks = _split_phonemes(phonemes)
+
+    assert "".join(chunks) == phonemes
+    assert all(0 < len(chunk) <= KOKORO_MAX_PHONEMES for chunk in chunks)
 
 
 def test_kokoro_rejects_reference_audio_through_the_model_interface(

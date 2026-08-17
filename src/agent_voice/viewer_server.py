@@ -16,12 +16,6 @@ from socketserver import TCPServer
 from string import Template
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
-from markdown_it import MarkdownIt
-from pygments import highlight
-from pygments.formatters import HtmlFormatter
-from pygments.lexers import get_lexer_by_name
-from pygments.util import ClassNotFound
-
 from . import __version__
 from .audio import PLAYBACK_ACTIONS, PlaybackController, write_audio
 from .config import load_defaults
@@ -34,7 +28,6 @@ from .viewer import (
     language_path,
     player_mapping_path,
     source_path,
-    transcript_path,
     valid_control_token,
     VIEWER_PROTOCOL,
 )
@@ -42,35 +35,6 @@ from .viewer import (
 
 DEFAULT_VIEWER_PORT = 8779
 _CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
-
-
-def _syntax_css(style: str) -> str:
-    return "\n".join(
-        line
-        for line in HtmlFormatter(style=style)
-        .get_style_defs(".response pre code")
-        .splitlines()
-        if line.startswith(".response pre code .")
-    )
-
-
-_CODE_FORMATTER = HtmlFormatter(nowrap=True)
-_PYGMENTS_LIGHT_CSS = _syntax_css("friendly")
-_PYGMENTS_DARK_CSS = _syntax_css("github-dark")
-
-
-def _highlight_code(source: str, language: str, _attrs: str) -> str:
-    try:
-        lexer = get_lexer_by_name(language)
-    except ClassNotFound:
-        return ""
-    return highlight(source, lexer, _CODE_FORMATTER)
-
-
-_MARKDOWN = MarkdownIt(
-    "gfm-like2",
-    {"breaks": True, "highlight": _highlight_code, "html": False},
-)
 
 
 class Server(ThreadingHTTPServer):
@@ -314,7 +278,6 @@ class Handler(BaseHTTPRequestHandler):
                         metadata.is_file()
                         for metadata in (
                             source_path(path),
-                            transcript_path(path),
                             language_path(path),
                         )
                     ):
@@ -488,7 +451,7 @@ def _playback_delay(query: str) -> float | None:
 def _player(recording: Path) -> bytes:
     name = recording.name
     try:
-        response_text = transcript_path(recording).read_text(encoding="utf-8")
+        response_text = source_path(recording).read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         response_text = ""
     template = Template(
@@ -499,12 +462,10 @@ def _player(recording: Path) -> bytes:
     return template.substitute(
         BRAND_ICON=_image_data_url("brand-icon.svg"),
         PAGE_TITLE=html.escape(f"{name} · Agent Voice", quote=True),
-        PYGMENTS_DARK=_PYGMENTS_DARK_CSS,
-        PYGMENTS_LIGHT=_PYGMENTS_LIGHT_CSS,
         RECORDING_NAME=html.escape(name, quote=True),
         MEDIA_SOURCE=f"/recordings/{quote(name, safe='')}",
         MEDIA_TYPE=CONTENT_TYPES[recording.suffix.lower().lstrip(".")],
-        RESPONSE_TEXT=_MARKDOWN.render(response_text),
+        RESPONSE_TEXT=html.escape(response_text),
     ).encode()
 
 

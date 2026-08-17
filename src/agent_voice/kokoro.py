@@ -39,6 +39,9 @@ KOKORO_MODEL_ID = "kokoro"
 KOKORO_DISPLAY_NAME = "Kokoro-82M"
 KOKORO_RUNTIME_NAME = "kokoro-onnx"
 KOKORO_NATURAL_SPEED = 1.0
+KOKORO_MAX_TEXT_CHARACTERS = 50_000
+# Voice styles are indexed by token count, so the 510-row table ends at 509.
+KOKORO_MAX_PHONEMES = 509
 DEFAULT_KOKORO_VARIANT = "int8"
 RELEASE_BASE = (
     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
@@ -199,8 +202,11 @@ class KokoroAdapter:
         text = request.text.strip()
         if not text:
             raise ValueError("Text cannot be empty")
-        if len(text) > 20_000:
-            raise ValueError("Text is too long (maximum 20,000 characters per request)")
+        if len(text) > KOKORO_MAX_TEXT_CHARACTERS:
+            raise ValueError(
+                "Text is too long "
+                f"(maximum {KOKORO_MAX_TEXT_CHARACTERS:,} characters per request)"
+            )
         if (
             isinstance(request.speed, bool)
             or not isinstance(request.speed, (int, float))
@@ -277,7 +283,30 @@ class KokoroAdapter:
 def _load_runtime(model: Path, voices: Path) -> _KokoroRuntime:
     from kokoro_onnx import Kokoro
 
-    return Kokoro(str(model), str(voices))
+    class AgentVoiceKokoro(Kokoro):
+        @staticmethod
+        def _split_phonemes(phonemes: str) -> list[str]:
+            return _split_phonemes(phonemes)
+
+    return AgentVoiceKokoro(str(model), str(voices))
+
+
+def _split_phonemes(phonemes: str) -> list[str]:
+    """Keep every phoneme while preferring natural batch boundaries."""
+    chunks: list[str] = []
+    remaining = phonemes.strip()
+    while len(remaining) > KOKORO_MAX_PHONEMES:
+        window = remaining[:KOKORO_MAX_PHONEMES]
+        split_at = max(window.rfind(mark) for mark in ".,!?;:") + 1
+        if split_at <= 1:
+            split_at = window.rfind(" ")
+        if split_at <= 0:
+            split_at = KOKORO_MAX_PHONEMES
+        chunks.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
 
 
 def _valid_asset(path: Path, asset: Asset) -> bool:

@@ -55,7 +55,7 @@ def validate_payload(payload: object) -> SpeechRequest:
 
 class TTSRequestHandler(BaseHTTPRequestHandler):
     model: SpeechModel
-    max_body_bytes = 100_000
+    max_body_bytes = 1_000_000
     server_version = f"AgentVoice/{__version__}"
 
     def setup(self) -> None:
@@ -196,7 +196,9 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
             raise ValueError("Content-Type must be application/json")
         length = int(self.headers.get("Content-Length", "0"))
         if length <= 0 or length > self.max_body_bytes:
-            raise ValueError("Request body must be between 1 and 100,000 bytes")
+            raise ValueError(
+                f"Request body must be between 1 and {self.max_body_bytes:,} bytes"
+            )
         payload = json.loads(self.rfile.read(length))
         if not isinstance(payload, dict):
             raise ValueError("JSON body must be an object")

@@ -29,7 +29,6 @@ def prepare_delivery(
     recording: Path,
     text: str,
     *,
-    source_text: str | None = None,
     language: str = "en-us",
     audio_format: str | None = None,
     recordings_dir: Path | None = None,
@@ -48,11 +47,10 @@ def prepare_delivery(
 
     try:
         published = publish_recording(path, resolved_format, recordings_dir)
-        source = text if source_text is None else source_text
-        publish_source(path, source)
+        publish_source(path, text)
         if published != path:
-            publish_source(published, source)
-        player_name = publish_player(published, text)
+            publish_source(published, text)
+        player_name = publish_player(published)
         publish_language(published, language)
         viewer = ensure_viewer(published.parent)
         browser_url, audio_url = recording_urls(viewer, published, player_name)
