@@ -10,16 +10,20 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from agent_voice import audio as audio_module
 from agent_voice import client, service
 from agent_voice.client import (
     ServiceUnavailable,
     ensure_service,
     health_check,
     request_speech,
+    request_speech_background,
     set_service_timeout,
     stop_service,
     validate_service_url,
 )
+from agent_voice.media import generating_audio
+from agent_voice.paths import pending_generation_path, streaming_pcm_path
 from agent_voice.config import update_defaults
 from agent_voice.model import (
     ModelDescriptor,
@@ -101,8 +105,20 @@ def test_server_rejects_invalid_ports(port):
         create_server(object(), "127.0.0.1", port)
 
 
-def test_serve_reports_the_actual_bound_port(monkeypatch, capsys):
+def test_serve_reports_the_actual_bound_port_and_recovers_interrupted_generation(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
     events = []
+    recordings = tmp_path / "recordings"
+    recordings.mkdir()
+    abandoned = recordings / "abandoned.mp3"
+    completed = recordings / "completed.mp3"
+    abandoned.write_bytes(generating_audio("mp3"))
+    completed.write_bytes(b"completed")
+    for recording in (abandoned, completed):
+        pending_generation_path(recording).touch()
+        streaming_pcm_path(recording).write_bytes(b"pcm")
 
     class FakeServer:
         server_port = 49_123
@@ -119,6 +135,11 @@ def test_serve_reports_the_actual_bound_port(monkeypatch, capsys):
 
     assert "http://127.0.0.1:49123" in capsys.readouterr().out
     assert events == ["serve", "close"]
+    assert not abandoned.exists()
+    assert completed.read_bytes() == b"completed"
+    for recording in (abandoned, completed):
+        assert not pending_generation_path(recording).exists()
+        assert not streaming_pcm_path(recording).exists()
 
 
 @pytest.mark.parametrize(
@@ -181,7 +202,9 @@ def test_legacy_speak_endpoint_is_not_available():
         assert json.loads(rejected.value.read())["error"] == "Not found"
 
 
-def test_health_and_speech_contract(tmp_path):
+def test_health_and_speech_contract(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
+
     class FakeModel:
         descriptor = ModelDescriptor(
             selection=ModelSelection("test-model", "test-variant"),
@@ -246,6 +269,7 @@ def test_health_and_speech_contract(tmp_path):
     assert health["model"] == "Test Model"
     assert health["model_id"] == "test-model"
     assert health["variant"] == "test-variant"
+    assert health["recording_root"] == str(tmp_path / "recordings")
     assert health["service_timeout_minutes"] is None
     assert hostile.value.code == 403
     assert json.loads(hostile.value.read())["error"] == "Host must be localhost"
@@ -281,6 +305,177 @@ def test_service_accepts_50_000_unicode_characters(tmp_path):
         )
 
     assert result.path.exists()
+
+
+@pytest.mark.parametrize("audio_format", ("wav", "mp3", "opus", "m4a"))
+def test_background_speech_returns_before_generation_finishes(
+    tmp_path, monkeypatch, audio_format
+):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
+    destination = tmp_path / "recordings" / f"live.{audio_format}"
+    destination.parent.mkdir()
+    destination.touch()
+    generation_waiting = threading.Event()
+    finish_generation = threading.Event()
+
+    class StreamingModel:
+        descriptor = ModelDescriptor(
+            selection=ModelSelection("test-model", "test-variant"),
+            display_name="Test Model",
+            runtime="test-runtime",
+            capabilities=frozenset(),
+        )
+
+        def synthesize_stream(self, request):
+            assert request.text == "stream this"
+            yield Speech(np.ones(240, dtype=np.float32) * 0.25, 24_000, 0.01)
+            generation_waiting.set()
+            assert finish_generation.wait(timeout=2)
+            yield Speech(np.ones(240, dtype=np.float32) * 0.5, 24_000, 0.01)
+
+    with _running_server(StreamingModel()) as (_, url):
+        recording = request_speech_background(
+            url,
+            "stream this",
+            destination,
+            audio_format,
+            "af_heart",
+            1.0,
+            "en-us",
+            selection=ModelSelection("test-model", "test-variant"),
+        )
+        assert generation_waiting.wait(timeout=1)
+        assert recording.path == destination.resolve()
+        assert pending_generation_path(destination).is_file()
+        assert streaming_pcm_path(destination).stat().st_size == 480
+        assert audio_module._decode_for_playback(destination)
+
+        finish_generation.set()
+        deadline = time.monotonic() + 2
+        while (
+            pending_generation_path(destination).is_file()
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+
+    assert not pending_generation_path(destination).exists()
+    assert audio_module._decode_for_playback(destination)
+
+
+def test_background_speech_rejects_a_different_client_recording_root(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path / "service"))
+    destination = tmp_path / "client" / "mismatch.mp3"
+
+    class StreamingModel:
+        descriptor = ModelDescriptor(
+            selection=ModelSelection("test-model", "test-variant"),
+            display_name="Test Model",
+            runtime="test-runtime",
+            capabilities=frozenset(),
+        )
+
+    with _running_server(StreamingModel()) as (_, url):
+        with pytest.raises(ServiceUnavailable, match="recording directory mismatch"):
+            request_speech_background(
+                url,
+                "do not start",
+                destination,
+                "mp3",
+                "af_heart",
+                1.0,
+                "en-us",
+                selection=ModelSelection("test-model", "test-variant"),
+            )
+
+    assert not destination.exists()
+
+
+def test_failed_background_generation_releases_the_reserved_recording(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
+    destination = tmp_path / "recordings" / "failed.mp3"
+    destination.parent.mkdir()
+    destination.touch()
+    generation_waiting = threading.Event()
+    fail_generation = threading.Event()
+
+    class FailingModel:
+        descriptor = ModelDescriptor(
+            selection=ModelSelection("test-model", "test-variant"),
+            display_name="Test Model",
+            runtime="test-runtime",
+            capabilities=frozenset(),
+        )
+
+        def synthesize_stream(self, _request):
+            yield Speech(np.ones(240, dtype=np.float32) * 0.25, 24_000, 0.01)
+            generation_waiting.set()
+            assert fail_generation.wait(timeout=2)
+            raise RuntimeError("generation failed")
+
+    with _running_server(FailingModel()) as (_, url):
+        request_speech_background(
+            url,
+            "fail",
+            destination,
+            "mp3",
+            "af_heart",
+            1.0,
+            "en-us",
+            selection=ModelSelection("test-model", "test-variant"),
+        )
+        assert generation_waiting.wait(timeout=1)
+        fail_generation.set()
+        deadline = time.monotonic() + 1
+        while (
+            pending_generation_path(destination).is_file()
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+
+    assert not destination.exists()
+    assert not pending_generation_path(destination).exists()
+
+
+def test_background_speech_rejects_invalid_input_before_started_receipt(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
+    destination = tmp_path / "recordings" / "invalid.mp3"
+    destination.parent.mkdir()
+    destination.touch()
+
+    class InvalidModel:
+        descriptor = ModelDescriptor(
+            selection=ModelSelection("test-model", "test-variant"),
+            display_name="Test Model",
+            runtime="test-runtime",
+            capabilities=frozenset(),
+        )
+
+        def synthesize_stream(self, _request):
+            raise ValueError("invalid voice")
+            yield
+
+    with _running_server(InvalidModel()) as (_, url):
+        with pytest.raises(ValueError, match="invalid voice"):
+            request_speech_background(
+                url,
+                "fail before start",
+                destination,
+                "mp3",
+                "missing",
+                1.0,
+                "en-us",
+                selection=ModelSelection("test-model", "test-variant"),
+            )
+
+    assert not destination.exists()
+    assert not pending_generation_path(destination).exists()
+    assert not streaming_pcm_path(destination).exists()
 
 
 def test_health_remains_available_while_speech_is_running(tmp_path):

@@ -20,17 +20,23 @@ from urllib.parse import quote
 from filelock import FileLock
 
 from .audio import PLAYBACK_ACTIONS
-from .media import CONTENT_TYPES
-from .paths import project_root, recording_dir
+from .media import CONTENT_TYPES, generating_audio
+from .paths import (
+    pending_generation_path,
+    project_root,
+    recording_dir,
+    streaming_pcm_path,
+)
 
 
 _VIEWER_DIRECTORY = ".agent-voice-viewer"
 _PLAYER_DIRECTORY = "players"
 _CONTROL_DIRECTORY = "controls"
 _RECORDING_RETENTION_SECONDS = (4 * 24 + 18) * 60 * 60
+_STREAM_RETENTION_SECONDS = 6 * 60 * 60
 _STARTUP_TIMEOUT_SECONDS = 15.0
 _STARTUP_HEALTH_TIMEOUT_SECONDS = 1.0
-VIEWER_PROTOCOL = 10
+VIEWER_PROTOCOL = 11
 _CONTROL_TOKEN = re.compile(r"[A-Za-z0-9_-]{24}")
 
 
@@ -253,11 +259,33 @@ def language_path(recording: Path) -> Path:
 
 
 def delete_expired_recordings(recordings: Path, *, now: float | None = None) -> None:
-    cutoff = (time.time() if now is None else now) - _RECORDING_RETENTION_SECONDS
+    current = time.time() if now is None else now
+    cutoff = current - _RECORDING_RETENTION_SECONDS
+    stream_cutoff = current - _STREAM_RETENTION_SECONDS
     try:
         # ponytail: a direct top-level scan is enough for the managed folder.
         for path in recordings.iterdir():
             try:
+                if path.name.startswith(".") and path.suffix == ".pending":
+                    recording = recordings / path.name[1 : -len(path.suffix)]
+                    if path.stat().st_mtime <= stream_cutoff:
+                        path.unlink()
+                        streaming_pcm_path(recording).unlink(missing_ok=True)
+                        if recording.is_file() and (
+                            recording.stat().st_size == 0
+                            or recording.read_bytes()
+                            == generating_audio(recording.suffix.lstrip(".").lower())
+                        ):
+                            recording.unlink()
+                    continue
+                if path.name.startswith(".") and path.suffix == ".pcm":
+                    recording = recordings / path.name[1 : -len(path.suffix)]
+                    if (
+                        path.stat().st_mtime <= stream_cutoff
+                        and not pending_generation_path(recording).is_file()
+                    ):
+                        path.unlink()
+                    continue
                 if (
                     path.suffix.lower().lstrip(".") in CONTENT_TYPES
                     and source_path(path).is_file()
@@ -265,6 +293,7 @@ def delete_expired_recordings(recordings: Path, *, now: float | None = None) -> 
                     and path.stat().st_mtime <= cutoff
                 ):
                     path.unlink()
+                    streaming_pcm_path(path).unlink(missing_ok=True)
             except OSError:
                 continue
     except OSError:
@@ -299,6 +328,12 @@ def recording_urls(
         recording_player_url(viewer, player_name),
         f"{viewer.url}/recordings/{quote(recording.name, safe='')}",
     )
+
+
+def recording_stream_url(viewer: Viewer, recording: Path) -> str:
+    if not viewer.url:
+        raise RuntimeError("Recording viewer is not running")
+    return f"{viewer.url}/stream/{quote(recording.name, safe='')}"
 
 
 def recording_control_urls(token: str) -> dict[str, str]:

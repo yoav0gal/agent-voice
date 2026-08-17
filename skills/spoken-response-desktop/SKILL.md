@@ -34,15 +34,17 @@ Choose the mode from the user's request:
    [recording and delivery instructions](references/delivery/antigravity.md).
 
    ```sh
-   agent-voice speak "$RESPONSE_AS_TEXT" --label "$LABEL"
+   agent-voice speak "$RESPONSE_AS_TEXT" --label "$LABEL" --wait
    ```
 
    For long responses, use temporary files outside the workspace and remove them
    afterward:
 
    ```sh
-   agent-voice speak --label "$LABEL" < "$RESPONSE_AS_TEXT_FILE"
+   agent-voice speak --label "$LABEL" --wait < "$RESPONSE_AS_TEXT_FILE"
    ```
+
+   On OpenCode Desktop, omit `--wait` and go straight to the delivery reference.
 
 5. Place the audio above the written response or `Previous` confirmation. Use
    the first matching delivery reference:

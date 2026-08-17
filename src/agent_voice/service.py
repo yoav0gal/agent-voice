@@ -11,11 +11,24 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from . import __version__
-from .audio import play_audio, write_audio
+from .audio import (
+    PLAYBACK_SAMPLE_RATE,
+    pcm16_bytes,
+    play_audio,
+    write_audio,
+    write_audio_bytes,
+)
 from .config import FORMATS, load_defaults
-from .media import CONTENT_TYPES
-from .model import NamedVoice, SpeechModel, SynthesisRequest
+from .media import CONTENT_TYPES, generating_audio
+from .model import NamedVoice, Speech, SpeechModel, SynthesisRequest
+from .paths import (
+    pending_generation_path,
+    resolved_recording_dir,
+    streaming_pcm_path,
+)
 
 
 @dataclass(frozen=True)
@@ -26,6 +39,13 @@ class SpeechRequest:
     lang: str
     audio_format: str
     play: bool
+    background_recording: str | None = None
+
+
+def _stream_pcm(speech: Speech) -> bytes:
+    if speech.sample_rate != PLAYBACK_SAMPLE_RATE:
+        raise RuntimeError(f"Streaming requires {PLAYBACK_SAMPLE_RATE} Hz audio")
+    return pcm16_bytes(np.asarray(speech.samples, dtype=np.float32).reshape(-1))
 
 
 def validate_payload(payload: object) -> SpeechRequest:
@@ -38,6 +58,7 @@ def validate_payload(payload: object) -> SpeechRequest:
     lang = payload.get("lang", "en-us")
     audio_format = payload.get("response_format", defaults.format)
     play = payload.get("play", False)
+    background = payload.get("background")
     if not isinstance(text, str):
         raise ValueError("input must be a string")
     if not isinstance(voice, str) or not voice:
@@ -50,7 +71,24 @@ def validate_payload(payload: object) -> SpeechRequest:
         raise ValueError(f"response_format must be one of: {', '.join(FORMATS)}")
     if not isinstance(play, bool):
         raise ValueError("play must be a boolean")
-    return SpeechRequest(text, voice, float(speed), lang, audio_format.lower(), play)
+    background_recording = None
+    if background is not None:
+        if not isinstance(background, dict):
+            raise ValueError("background must be an object")
+        background_recording = background.get("recording_name")
+        if not isinstance(background_recording, str) or not background_recording:
+            raise ValueError("background.recording_name must be a non-empty string")
+        if play:
+            raise ValueError("background speech cannot use play")
+    return SpeechRequest(
+        text,
+        voice,
+        float(speed),
+        lang,
+        audio_format.lower(),
+        play,
+        background_recording,
+    )
 
 
 class TTSRequestHandler(BaseHTTPRequestHandler):
@@ -86,6 +124,10 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
                     "model_id": descriptor.selection.model_id,
                     "variant": descriptor.selection.variant,
                     "ready": True,
+                    "features": ["streaming"],
+                    "recording_root": str(
+                        resolved_recording_dir(load_defaults().output_dir).resolve()
+                    ),
                     "service_timeout_minutes": idle_timeout_minutes,
                 },
             )
@@ -136,29 +178,117 @@ class TTSRequestHandler(BaseHTTPRequestHandler):
         try:
             payload = self._read_json()
             request = validate_payload(payload)
-            audio = self._synthesize(request)
         except (ValueError, json.JSONDecodeError) as error:
             self._json(400, {"error": str(error)})
+            return
+        if request.background_recording is not None:
+            try:
+                self._generate_in_background(request)
+            except ValueError as error:
+                self._json(400, {"error": str(error)})
+            except Exception as error:
+                self._json(500, {"error": str(error)})
+            return
+        try:
+            audio = self._synthesize(request)
         except Exception as error:
             self._json(500, {"error": str(error)})
-        else:
-            self.send_response(200)
-            data, audio_format, voice, metadata = audio
-            self.send_header("Content-Type", CONTENT_TYPES[audio_format])
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("X-Agent-Voice-Voice", voice)
-            self.send_header("X-Agent-Voice-Speed", str(request.speed))
-            self.send_header("X-Agent-Voice-Sample-Rate", str(metadata["sample_rate"]))
-            self.send_header(
-                "X-Agent-Voice-Duration", str(metadata["duration_seconds"])
+            return
+        self.send_response(200)
+        data, audio_format, voice, metadata = audio
+        self.send_header("Content-Type", CONTENT_TYPES[audio_format])
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Agent-Voice-Voice", voice)
+        self.send_header("X-Agent-Voice-Speed", str(request.speed))
+        self.send_header("X-Agent-Voice-Sample-Rate", str(metadata["sample_rate"]))
+        self.send_header("X-Agent-Voice-Duration", str(metadata["duration_seconds"]))
+        self.send_header(
+            "X-Agent-Voice-Generation-Seconds",
+            str(metadata["generation_seconds"]),
+        )
+        self.send_header("X-Agent-Voice-Played", str(metadata["played"]).lower())
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _generate_in_background(self, request: SpeechRequest) -> None:
+        destination = self._background_destination(
+            request.background_recording, request.audio_format
+        )
+        pending = pending_generation_path(destination)
+        stream_path = streaming_pcm_path(destination)
+        response_started = False
+        started = time.perf_counter()
+        try:
+            pending.touch(mode=0o600, exist_ok=False)
+            stream_path.touch(mode=0o600, exist_ok=False)
+            write_audio_bytes(generating_audio(request.audio_format), destination)
+            synthesis_request = SynthesisRequest(
+                text=request.text,
+                voice=NamedVoice(request.voice),
+                speed=request.speed,
+                language=request.lang,
             )
-            self.send_header(
-                "X-Agent-Voice-Generation-Seconds",
-                str(metadata["generation_seconds"]),
+            with stream_path.open("ab", buffering=0) as stream:
+                chunks = iter(self.model.synthesize_stream(synthesis_request))
+                for speech in chunks:
+                    chunk = _stream_pcm(speech)
+                    if not chunk:
+                        continue
+                    stream.write(chunk)
+                    break
+                else:
+                    raise RuntimeError("Speech generation returned no audio")
+                self._json(202, {"state": "started", "recording": destination.name})
+                response_started = True
+                for speech in chunks:
+                    chunk = _stream_pcm(speech)
+                    if chunk:
+                        stream.write(chunk)
+            samples = np.fromfile(stream_path, dtype="<i2").astype(np.float32)
+            samples /= 32_768
+            write_audio(
+                samples,
+                PLAYBACK_SAMPLE_RATE,
+                destination,
+                request.audio_format,
             )
-            self.send_header("X-Agent-Voice-Played", str(metadata["played"]).lower())
-            self.end_headers()
-            self.wfile.write(data)
+            self.log_message(
+                "background speech completed in %.3fs", time.perf_counter() - started
+            )
+        except Exception as error:
+            destination.unlink(missing_ok=True)
+            stream_path.unlink(missing_ok=True)
+            if response_started:
+                self.log_error("background speech failed: %s", error)
+            else:
+                raise
+        finally:
+            pending.unlink(missing_ok=True)
+
+    def _background_destination(
+        self, recording_name: str | None, audio_format: str
+    ) -> Path:
+        if recording_name is None:
+            raise ValueError("background recording name is missing")
+        name = Path(recording_name)
+        root = resolved_recording_dir(load_defaults().output_dir).resolve()
+        destination = (root / name).resolve()
+        if (
+            name.name != recording_name
+            or destination.parent != root
+            or destination.suffix.lower() != f".{audio_format}"
+        ):
+            raise ValueError(
+                "background recording name must be a managed filename matching "
+                "response_format"
+            )
+        if (
+            not destination.is_file()
+            or destination.is_symlink()
+            or destination.stat().st_size != 0
+        ):
+            raise ValueError("background recording must be a new managed reservation")
+        return destination
 
     def _synthesize(
         self, request: SpeechRequest
@@ -328,6 +458,41 @@ def create_server(
     return IdleHTTPServer((host, port), handler, idle_timeout_seconds)
 
 
+def _recover_interrupted_generations() -> int:
+    root = resolved_recording_dir(load_defaults().output_dir).resolve()
+    if not root.is_dir():
+        return 0
+    recovered = 0
+    # ponytail: one service owns a managed recording root; add per-job locks if
+    # multi-port services ever need to share one root.
+    for pending in root.glob(".*.pending"):
+        recording = root / pending.name[1 : -len(".pending")]
+        audio_format = recording.suffix.lower().lstrip(".")
+        if audio_format not in FORMATS:
+            continue
+        try:
+            placeholder = generating_audio(audio_format)
+            remove_recording = (
+                recording.is_file()
+                and not recording.is_symlink()
+                and (
+                    recording.stat().st_size == 0
+                    or (
+                        recording.stat().st_size == len(placeholder)
+                        and recording.read_bytes() == placeholder
+                    )
+                )
+            )
+            if remove_recording:
+                recording.unlink()
+            streaming_pcm_path(recording).unlink(missing_ok=True)
+            pending.unlink()
+        except OSError:
+            continue
+        recovered += 1
+    return recovered
+
+
 def serve(
     model: SpeechModel,
     host: str,
@@ -335,7 +500,10 @@ def serve(
     idle_timeout_seconds: float | None = None,
 ) -> None:
     server = create_server(model, host, port, idle_timeout_seconds)
+    recovered = _recover_interrupted_generations()
     print(f"Agent Voice listening on http://{host}:{server.server_port}")
+    if recovered:
+        print(f"Recovered {recovered} interrupted generation(s)")
     if idle_timeout_seconds is not None:
         print(f"Stops after {idle_timeout_seconds / 60:g} idle minutes")
     print("POST /v1/audio/speech · GET /voices · GET /health")

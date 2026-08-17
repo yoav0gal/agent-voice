@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 import wave
 from types import SimpleNamespace
 
@@ -14,6 +16,7 @@ from agent_voice.audio import (
     write_audio,
     write_audio_bytes,
 )
+from agent_voice.paths import pending_generation_path, streaming_pcm_path
 
 
 def test_write_wav(tmp_path):
@@ -260,6 +263,123 @@ def test_playback_controller_restarts_and_seeks_ten_seconds(tmp_path):
         restarted = controller.control(recording, "restart")
         assert restarted.position_seconds == 0
         assert restarted.playing is True
+    finally:
+        controller.close()
+
+
+def test_playback_controller_forward_waits_for_full_ten_seconds(tmp_path):
+    recording = tmp_path / "sample.mp3"
+    recording.write_bytes(b"audio")
+    controller = PlaybackController(decoder=lambda _path: bytes(15 * 48_000))
+    try:
+        assert controller.control(recording, "forward").position_seconds == 10
+        assert controller.control(recording, "forward").position_seconds == 10
+    finally:
+        controller.close()
+
+
+def test_playback_controller_forward_clamps_to_live_edge(tmp_path):
+    recording = tmp_path / "sample.mp3"
+    recording.touch()
+    pending_generation_path(recording).touch()
+    stream = streaming_pcm_path(recording)
+    stream.write_bytes(bytes(15 * 48_000))
+    controller = PlaybackController()
+    try:
+        controller.control(recording, "forward")
+        deadline = time.monotonic() + 1
+        while len(controller._source_pcm) < stream.stat().st_size:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+
+        controller.control(recording, "back")
+        assert controller.control(recording, "forward").position_seconds == 10
+        assert controller.control(recording, "forward").position_seconds == 15
+    finally:
+        controller.close()
+
+
+def test_playback_controller_plays_pcm_as_it_is_generated(tmp_path):
+    recording = tmp_path / "sample.mp3"
+    recording.touch()
+    pending_generation_path(recording).touch()
+    streaming_pcm_path(recording).touch()
+    device = SimpleNamespace(running=False)
+
+    def start(stream):
+        device.stream = stream
+        device.running = True
+
+    device.start = start
+    device.stop = lambda: setattr(device, "running", False)
+    device.close = device.stop
+    processed = threading.Event()
+
+    def change_tempo(pcm, _speed):
+        processed.set()
+        return pcm
+
+    controller = PlaybackController(
+        device_factory=lambda **_options: device,
+        tempo_changer=change_tempo,
+    )
+    try:
+        assert controller.control(recording, "toggle").playing is True
+        faster = controller.control(recording, "faster")
+        assert faster.speed == 1.25
+        assert faster.playing is True
+        assert bytes(device.stream.send(2)) == bytes(4)
+
+        streaming_pcm_path(recording).write_bytes(b"\x01\x00\x02\x00")
+        assert processed.wait(timeout=1)
+        assert bytes(device.stream.send(2)) == b"\x01\x00\x02\x00"
+        paused = controller.control(recording, "toggle")
+        assert paused.playing is False
+        assert paused.position_seconds > 0
+        resumed = controller.control(recording, "toggle")
+        assert resumed.playing is True
+        assert resumed.position_seconds == paused.position_seconds
+        assert (
+            controller.control(recording, "forward").position_seconds
+            == resumed.position_seconds
+        )
+
+        recording.write_bytes(b"complete")
+        pending_generation_path(recording).unlink()
+        deadline = time.monotonic() + 1
+        while controller._streaming_locked() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert bytes(device.stream.send(2)) == bytes(4)
+        assert controller.control(recording, "toggle").playing is True
+    finally:
+        controller.close()
+
+
+def test_playback_controller_reloads_after_live_generation_fails(tmp_path):
+    recording = tmp_path / "sample.mp3"
+    recording.touch()
+    pending_generation_path(recording).touch()
+    streaming_pcm_path(recording).write_bytes(b"\x01\x00")
+    decoded = []
+
+    def decode(path):
+        decoded.append(path)
+        return b"\x02\x00"
+
+    controller = PlaybackController(decoder=decode)
+    try:
+        controller.control(recording, "forward")
+        recording.unlink()
+        pending_generation_path(recording).unlink()
+        deadline = time.monotonic() + 1
+        while controller._recording is not None and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        recording.write_bytes(b"regenerated")
+        state = controller.control(recording, "forward")
+
+        assert decoded == [recording.resolve()]
+        assert state.playing is False
     finally:
         controller.close()
 

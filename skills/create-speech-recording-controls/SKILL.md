@@ -39,7 +39,8 @@ blocking.
 
 ## Deliver
 
-Use [default.md](references/delivery/default.md).
+Use [default.md](references/delivery/default.md) immediately after `speak`
+returns a receipt with generation.state: "started"
 
 ## Setup
 

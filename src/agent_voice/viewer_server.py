@@ -7,6 +7,7 @@ import html
 import json
 import math
 import os
+import struct
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,6 +22,7 @@ from .audio import PLAYBACK_ACTIONS, PlaybackController, write_audio
 from .config import load_defaults
 from .media import CONTENT_TYPES
 from .model import NamedVoice, SynthesisRequest
+from .paths import pending_generation_path, streaming_pcm_path
 from .registry import MODEL_REGISTRY
 from .viewer import (
     control_mapping_path,
@@ -180,12 +182,33 @@ class Handler(BaseHTTPRequestHandler):
         prefix = next(
             (
                 value
-                for value in ("/recordings/", "/player/")
+                for value in ("/recordings/", "/player/", "/stream/")
                 if url.path.startswith(value)
             ),
             None,
         )
         encoded = url.path.removeprefix(prefix or "")
+        if prefix == "/stream/":
+            recording = self._stream_recording(encoded, server)
+            if recording is None:
+                self.send_error(404)
+            elif streaming_pcm_path(recording).is_file():
+                self._send_pcm_stream(recording, head)
+            else:
+                try:
+                    completed = self._recording(encoded, server)
+                except Exception:
+                    self.send_error(503, "Recording regeneration failed")
+                    return
+                if completed is None:
+                    self.send_error(404)
+                else:
+                    self.send_response(307)
+                    self.send_header(
+                        "Location", f"/recordings/{quote(completed.name, safe='')}"
+                    )
+                    self.end_headers()
+            return
         try:
             recording = (
                 self._player_recording(encoded, server)
@@ -199,6 +222,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
         elif prefix == "/player/":
             self._send(_player(recording), "text/html; charset=utf-8", head)
+        elif pending_generation_path(recording).is_file():
+            self.send_error(425, "Recording is still being generated")
         else:
             content_type = CONTENT_TYPES[recording.suffix.lower().lstrip(".")]
             if not self._send_file(recording, content_type, head):
@@ -236,6 +261,14 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return self._recording(quote(recording_name, safe=""), server)
 
+    def _stream_recording(self, encoded: str, server: Server) -> Path | None:
+        try:
+            name = unquote(encoded, errors="strict")
+        except (UnicodeError, ValueError):
+            return None
+        recording = self._recording_path(name, server)
+        return recording
+
     def _control_target(self, path: str, server: Server) -> tuple[Path, str] | None:
         if not path.startswith("/control/"):
             return None
@@ -271,6 +304,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self._recording_path(name, server)
         if path is None:
             return None
+        if pending_generation_path(path).is_file():
+            return path if path.is_file() else None
         if not path.is_file():
             with server.regeneration_lock:
                 if not path.is_file():
@@ -284,6 +319,36 @@ class Handler(BaseHTTPRequestHandler):
                         return None
                     _regenerate_recording(path)
         return path if path.is_file() else None
+
+    def _send_pcm_stream(self, recording: Path, head: bool) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Cache-Control", "private, no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        if head:
+            return
+
+        stream_path = streaming_pcm_path(recording)
+        pending = pending_generation_path(recording)
+        try:
+            self.wfile.write(_streaming_wav_header())
+            offset = 0
+            while True:
+                with stream_path.open("rb") as stream:
+                    stream.seek(offset)
+                    chunk = stream.read(64 * 1024)
+                if chunk:
+                    offset += len(chunk)
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                elif pending.is_file():
+                    time.sleep(0.05)
+                else:
+                    return
+        except OSError:
+            return
 
     def _recording_path(self, name: str, server: Server) -> Path | None:
         try:
@@ -459,14 +524,34 @@ def _player(recording: Path) -> bytes:
         .joinpath("templates", "recording.html")
         .read_text(encoding="utf-8")
     )
+    streaming = pending_generation_path(recording).is_file()
     return template.substitute(
         BRAND_ICON=_image_data_url("brand-icon.svg"),
         PAGE_TITLE=html.escape(f"{name} · Agent Voice", quote=True),
         RECORDING_NAME=html.escape(name, quote=True),
-        MEDIA_SOURCE=f"/recordings/{quote(name, safe='')}",
-        MEDIA_TYPE=CONTENT_TYPES[recording.suffix.lower().lstrip(".")],
+        MEDIA_SOURCE=(
+            f"/stream/{quote(name, safe='')}"
+            if streaming
+            else f"/recordings/{quote(name, safe='')}"
+        ),
+        MEDIA_TYPE=(
+            "audio/wav"
+            if streaming
+            else CONTENT_TYPES[recording.suffix.lower().lstrip(".")]
+        ),
         RESPONSE_TEXT=html.escape(response_text),
     ).encode()
+
+
+def _streaming_wav_header() -> bytes:
+    return (
+        b"RIFF"
+        + struct.pack("<I", 0xFFFFFFFF)
+        + b"WAVEfmt "
+        + struct.pack("<IHHIIHH", 16, 1, 1, 24_000, 48_000, 2, 16)
+        + b"data"
+        + struct.pack("<I", 0xFFFFFFFF)
+    )
 
 
 def _regenerate_recording(recording: Path) -> None:

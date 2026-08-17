@@ -122,6 +122,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="include experimental desktop playback control links",
     )
+    speak.add_argument(
+        "--wait",
+        action="store_true",
+        help="wait for the completed recording before returning",
+    )
     _add_model_arguments(speak)
     speak.add_argument(
         "--no-service",
@@ -482,6 +487,7 @@ def _speak(args: argparse.Namespace) -> None:
             no_service=args.no_service,
             service_url=args.service_url,
             controls=args.controls,
+            wait=args.wait,
         )
     )
     print(json.dumps(receipt.to_dict()))

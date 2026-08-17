@@ -21,23 +21,23 @@ Set `RESPONSE_AS_TEXT` to the text's spoken form.
 ## Record
 
 ```sh
-agent-voice speak "$RESPONSE_AS_TEXT"
+agent-voice speak "$RESPONSE_AS_TEXT" --wait
 ```
 
 For long text, use temporary files outside the workspace and remove them afterward:
 
 ```sh
-agent-voice speak --label "$LABEL" < "$RESPONSE_AS_TEXT_FILE"
+agent-voice speak --label "$LABEL" --wait < "$RESPONSE_AS_TEXT_FILE"
 ```
 
-On Antigravity App, follow the special
+On OpenCode Desktop, omit `--wait`. On Antigravity App, follow the special
 [recording and delivery instructions](references/delivery/antigravity.md).
 
 Set `LABEL` to a short subject. For an exact requested filename, replace
 `--label "$LABEL"` with `--output "$PATH"`.
 
-Use the returned `path` to deliver the recording. For speaker playback, add
-`-p`; continue after the result reports `playback.state: "started"`. Add
+Use the matching delivery reference. For speaker playback, add `-p`; continue
+after the result reports `playback.state: "started"`. Add
 `--play-after SECONDS` to schedule it without blocking.
 
 ## Deliver

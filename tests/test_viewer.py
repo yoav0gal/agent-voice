@@ -17,6 +17,8 @@ import pytest
 from agent_voice import viewer as viewer_module
 from agent_voice import viewer_server
 from agent_voice import controls as controls_module
+from agent_voice.media import generating_audio
+from agent_voice.paths import pending_generation_path, streaming_pcm_path
 from agent_voice.viewer import (
     VIEWER_PROTOCOL,
     Viewer,
@@ -28,6 +30,7 @@ from agent_voice.viewer import (
     publish_recording,
     publish_source,
     recording_player_url,
+    recording_stream_url,
     recording_urls,
     recording_control_urls,
     source_path,
@@ -94,6 +97,47 @@ def test_viewer_serves_supported_audio_and_dynamic_player(tmp_path, name, conten
     assert source_path(recording).read_text() == narration
 
 
+@pytest.mark.parametrize("name", ("live.wav", "live.mp3", "live.opus", "live.m4a"))
+def test_player_uses_native_live_audio_while_recording_is_generated(tmp_path, name):
+    recording = tmp_path / name
+    recording.touch()
+    publish_source(recording, "Live response")
+    player_name = publish_player(recording)
+    pending_generation_path(recording).touch()
+    streaming_pcm_path(recording).touch()
+
+    with _running_viewer(tmp_path) as (_, url):
+        with urllib.request.urlopen(f"{url}/player/{player_name}") as response:
+            document = response.read().decode()
+        assert f'src="/stream/{name}"' in document
+        assert 'type="audio/wav"' in document
+        with pytest.raises(urllib.error.HTTPError) as error:
+            urllib.request.urlopen(f"{url}/recordings/{name}")
+        assert error.value.code == 425
+
+        def finish_generation():
+            time.sleep(0.05)
+            streaming_pcm_path(recording).write_bytes(b"\x01\x00\x02\x00")
+            recording.write_bytes(b"final audio")
+            pending_generation_path(recording).unlink()
+
+        writer = threading.Thread(target=finish_generation)
+        writer.start()
+        with urllib.request.urlopen(f"{url}/stream/{name}") as response:
+            audio = response.read()
+            assert response.headers["Content-Type"] == "audio/wav"
+        writer.join(timeout=1)
+
+        streaming_pcm_path(recording).unlink()
+        with urllib.request.urlopen(f"{url}/stream/{name}") as response:
+            assert response.url == f"{url}/recordings/{name}"
+            assert response.read() == b"final audio"
+
+    assert audio[:4] == b"RIFF"
+    assert audio[8:12] == b"WAVE"
+    assert audio[44:] == b"\x01\x00\x02\x00"
+
+
 def test_viewer_rejects_legacy_player_links(tmp_path):
     recording = tmp_path / "legacy.mp3"
     recording.write_bytes(b"audio")
@@ -120,11 +164,13 @@ def test_player_urls_keep_audio_formats_distinct(tmp_path):
     wav_url = recording_player_url(viewer, wav_name)
     _, mp3_audio_url = recording_urls(viewer, mp3, mp3_name)
     _, wav_audio_url = recording_urls(viewer, wav, wav_name)
+    mp3_stream_url = recording_stream_url(viewer, mp3)
 
     assert mp3_url.endswith("/player/sample.html")
     assert wav_url.endswith("/player/sample-2.html")
     assert mp3_audio_url.endswith("/recordings/sample.mp3")
     assert wav_audio_url.endswith("/recordings/sample.wav")
+    assert mp3_stream_url.endswith("/stream/sample.mp3")
     with _running_viewer(tmp_path) as (_, url):
         with urllib.request.urlopen(f"{url}/player/sample.html") as response:
             assert 'src="/recordings/sample.mp3"' in response.read().decode()
@@ -463,6 +509,35 @@ def test_expired_recordings_keep_sources_and_unmanaged_audio(tmp_path):
     assert fresh.is_file()
     assert unmanaged.is_file()
     assert unrelated_sidecar.is_file()
+
+
+def test_completed_stream_sidecars_expire_without_touching_active_generation(tmp_path):
+    now = time.time()
+    completed = tmp_path / "completed.mp3"
+    active = tmp_path / "active.mp3"
+    stale = tmp_path / "stale.mp3"
+    for recording in (completed, active, stale):
+        recording.touch()
+        streaming_pcm_path(recording).write_bytes(b"pcm")
+        os.utime(
+            streaming_pcm_path(recording),
+            (now - 6 * 60 * 60 - 1,) * 2,
+        )
+    pending_generation_path(active).touch()
+    pending_generation_path(stale).touch()
+    stale.write_bytes(generating_audio("mp3"))
+    os.utime(
+        pending_generation_path(stale),
+        (now - 6 * 60 * 60 - 1,) * 2,
+    )
+
+    delete_expired_recordings(tmp_path, now=now)
+
+    assert not streaming_pcm_path(completed).exists()
+    assert streaming_pcm_path(active).is_file()
+    assert not stale.exists()
+    assert not pending_generation_path(stale).exists()
+    assert not streaming_pcm_path(stale).exists()
 
 
 def test_viewer_regenerates_missing_audio_from_source(tmp_path, monkeypatch):

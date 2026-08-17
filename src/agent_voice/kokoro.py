@@ -8,7 +8,7 @@ import tempfile
 import threading
 import time
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Protocol
 
@@ -91,6 +91,10 @@ class _KokoroRuntime(Protocol):
     def create(
         self, text: str, *, voice: str, speed: float, lang: str
     ) -> tuple[NDArray[np.floating], int]: ...
+
+    def create_chunks(
+        self, text: str, *, voice: str, speed: float, lang: str
+    ) -> Iterator[tuple[NDArray[np.floating], int]]: ...
 
 
 RuntimeFactory = Callable[[Path, Path], _KokoroRuntime]
@@ -199,6 +203,41 @@ class KokoroAdapter:
         )
 
     def synthesize(self, request: SynthesisRequest) -> Speech:
+        text, runtime, voice, language = self._prepare_request(request)
+        started = time.perf_counter()
+        with self._inference_lock:
+            samples, sample_rate = runtime.create(
+                text,
+                voice=voice,
+                speed=KOKORO_NATURAL_SPEED,
+                lang=language,
+            )
+        samples = change_tempo(samples, sample_rate, float(request.speed))
+        return Speech(samples, sample_rate, time.perf_counter() - started)
+
+    def synthesize_stream(self, request: SynthesisRequest) -> Iterator[Speech]:
+        text, runtime, voice, language = self._prepare_request(request)
+        with self._inference_lock:
+            chunks = iter(
+                runtime.create_chunks(
+                    text,
+                    voice=voice,
+                    speed=KOKORO_NATURAL_SPEED,
+                    lang=language,
+                )
+            )
+            while True:
+                started = time.perf_counter()
+                try:
+                    samples, sample_rate = next(chunks)
+                except StopIteration:
+                    break
+                samples = change_tempo(samples, sample_rate, float(request.speed))
+                yield Speech(samples, sample_rate, time.perf_counter() - started)
+
+    def _prepare_request(
+        self, request: SynthesisRequest
+    ) -> tuple[str, _KokoroRuntime, str, str]:
         text = request.text.strip()
         if not text:
             raise ValueError("Text cannot be empty")
@@ -232,16 +271,7 @@ class KokoroAdapter:
         if voice not in runtime.get_voices():
             raise ValueError(f"Unknown voice '{voice}'")
 
-        started = time.perf_counter()
-        with self._inference_lock:
-            samples, sample_rate = runtime.create(
-                text,
-                voice=voice,
-                speed=KOKORO_NATURAL_SPEED,
-                lang=language,
-            )
-        samples = change_tempo(samples, sample_rate, float(request.speed))
-        return Speech(samples, sample_rate, time.perf_counter() - started)
+        return text, runtime, voice, language
 
     @property
     def variant(self) -> str:
@@ -287,6 +317,17 @@ def _load_runtime(model: Path, voices: Path) -> _KokoroRuntime:
         @staticmethod
         def _split_phonemes(phonemes: str) -> list[str]:
             return _split_phonemes(phonemes)
+
+        def create_chunks(self, text: str, *, voice: str, speed: float, lang: str):
+            phonemes = self.tokenizer.phonemize(text, lang)
+            for chunk in _split_phonemes(phonemes):
+                yield self.create(
+                    chunk,
+                    voice=voice,
+                    speed=speed,
+                    lang=lang,
+                    is_phonemes=True,
+                )
 
     return AgentVoiceKokoro(str(model), str(voices))
 

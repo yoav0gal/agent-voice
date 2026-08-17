@@ -30,6 +30,12 @@ class FakeKokoro:
         self.speed = speed
         return np.zeros(24_000, dtype=np.float32), 24_000
 
+    def create_chunks(self, text, voice, speed, lang):
+        self.text = text
+        self.speed = speed
+        yield np.zeros(240, dtype=np.float32), 24_000
+        yield np.ones(480, dtype=np.float32), 24_000
+
 
 def fake_model(monkeypatch):
     runtime = FakeKokoro()
@@ -64,6 +70,23 @@ def test_speed_uses_natural_synthesis_then_post_processing(monkeypatch, speed):
     assert runtime.speed == 1.0
     assert tempo_factors == [speed]
     assert speech.duration_seconds == 1.0
+
+
+def test_streaming_preserves_model_chunks_and_post_processes_each(monkeypatch):
+    model, runtime = fake_model(monkeypatch)
+    tempo_factors = []
+
+    def change_tempo(samples, _sample_rate, factor):
+        tempo_factors.append(factor)
+        return samples
+
+    monkeypatch.setattr(kokoro_module, "change_tempo", change_tempo)
+
+    chunks = list(model.synthesize_stream(SynthesisRequest("Stream me", speed=1.5)))
+
+    assert [len(chunk.samples) for chunk in chunks] == [240, 480]
+    assert runtime.speed == 1.0
+    assert tempo_factors == [1.5, 1.5]
 
 
 @pytest.mark.parametrize("speed", [0.49, 4.01])

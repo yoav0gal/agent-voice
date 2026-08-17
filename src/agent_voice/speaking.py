@@ -15,6 +15,7 @@ from .client import (
     ServiceUnavailable,
     ensure_service,
     request_speech,
+    request_speech_background,
 )
 from .config import FORMATS, SpeechDefaults, load_defaults
 from .delivery import Delivery, prepare_delivery
@@ -45,6 +46,7 @@ class SpeakRequest:
     no_service: bool = False
     service_url: str = DEFAULT_SERVICE_URL
     controls: bool = False
+    wait: bool = False
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,7 @@ class SpeakReceipt:
     delivery: Delivery
     playback: dict[str, object] | None = None
     service_fallback: bool = False
+    generation: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload = self.recording.to_dict()
@@ -63,16 +66,22 @@ class SpeakReceipt:
             payload["playback"] = self.playback
         if self.service_fallback:
             payload["service_fallback"] = True
+        if self.generation is not None:
+            payload["generation"] = self.generation
         payload["file_uri"] = self.recording.path.resolve().as_uri()
         delivery: dict[str, object] = {}
         if self.delivery.browser_url is not None:
-            delivery.update(
-                {
-                    "browser_url": self.delivery.browser_url,
-                    "audio_url": self.delivery.audio_url,
-                    "recording_path": str(self.delivery.recording_path),
-                }
-            )
+            delivery["browser_url"] = self.delivery.browser_url
+            if self.generation is not None:
+                if self.delivery.stream_url is not None:
+                    delivery["stream_url"] = self.delivery.stream_url
+            else:
+                delivery.update(
+                    {
+                        "audio_url": self.delivery.audio_url,
+                        "recording_path": str(self.delivery.recording_path),
+                    }
+                )
             if self.delivery.controls is not None:
                 delivery["controls"] = self.delivery.controls
         payload["delivery"] = delivery
@@ -100,10 +109,15 @@ class _ResolvedSpeakRequest:
     service_timeout_minutes: float
     service_url: str
     controls: bool
+    wait: bool
 
 
 class _RecordingGenerator(Protocol):
     def generate(self, request: _ResolvedSpeakRequest) -> Recording: ...
+
+
+class _ServiceRecordingGenerator(_RecordingGenerator, Protocol):
+    def generate_background(self, request: _ResolvedSpeakRequest) -> Recording: ...
 
 
 class _DeliveryPreparer(Protocol):
@@ -171,6 +185,24 @@ class _ServiceGenerator:
             selection=request.selection,
         )
 
+    def generate_background(self, request: _ResolvedSpeakRequest) -> Recording:
+        ensure_service(
+            request.service_url,
+            request.selection,
+            request.service_timeout_minutes,
+            required_feature="streaming",
+        )
+        return request_speech_background(
+            request.service_url,
+            request.text,
+            request.output.destination,
+            request.output.audio_format,
+            request.voice,
+            request.speed,
+            request.language,
+            selection=request.selection,
+        )
+
 
 class Speaker:
     """Resolve and execute one complete speaking request."""
@@ -180,7 +212,7 @@ class Speaker:
         *,
         defaults_loader: Callable[[], SpeechDefaults] = load_defaults,
         embedded: _RecordingGenerator | None = None,
-        service: _RecordingGenerator | None = None,
+        service: _ServiceRecordingGenerator | None = None,
         playback: Callable[[Path, float | None], dict[str, object]] = (
             lambda path, delay: start_playback(path, after=delay)
         ),
@@ -204,8 +236,20 @@ class Speaker:
         defaults = self._defaults_loader()
         resolved = self._resolve(request, defaults)
         fallback = False
+        background = _background_generation(resolved)
         try:
-            if resolved.no_service:
+            if background:
+                try:
+                    recording = self._service.generate_background(resolved)
+                except ServiceUnavailable as error:
+                    fallback = True
+                    background = False
+                    self._notice(
+                        "Agent Voice streaming unavailable; using embedded inference "
+                        f"({error})"
+                    )
+                    recording = self._embedded.generate(resolved)
+            elif resolved.no_service:
                 recording = self._embedded.generate(resolved)
             else:
                 try:
@@ -246,6 +290,7 @@ class Speaker:
             delivery=delivery,
             playback=playback,
             service_fallback=fallback,
+            generation={"state": "started"} if background else None,
         )
 
     def _resolve(
@@ -265,6 +310,7 @@ class Speaker:
             service_timeout_minutes=defaults.service_timeout_minutes,
             service_url=request.service_url,
             controls=request.controls,
+            wait=request.wait,
         )
 
     def _plan_output(
@@ -327,6 +373,16 @@ def _require_planned_recording(
         raise RuntimeError("Speech backend returned an unexpected recording path")
     if recording.format != output.audio_format:
         raise RuntimeError("Speech backend returned an unexpected recording format")
+
+
+def _background_generation(request: _ResolvedSpeakRequest) -> bool:
+    return (
+        not request.wait
+        and request.output.reserved
+        and request.output.destination.parent == request.output.recording_root
+        and request.play_after is None
+        and not request.no_service
+    )
 
 
 def _filename_label(value: str) -> str:

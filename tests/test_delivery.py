@@ -40,6 +40,9 @@ def test_prepare_delivery_uses_http_player_audio_and_control_links(
     assert result.audio_url == (
         "http://127.0.0.1:49123/recordings/Daily%20update%20%26%20notes.mp3"
     )
+    assert result.stream_url == (
+        "http://127.0.0.1:49123/stream/Daily%20update%20%26%20notes.mp3"
+    )
     assert result.controls == {
         action: f"agent-voice://control/abcdefghijklmnopqrstuvwx/{action}"
         for action in ("toggle", "restart", "back", "forward", "slower", "faster")

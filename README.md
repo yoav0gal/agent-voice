@@ -163,13 +163,8 @@ agent-voice speak "The build is finished."
 # Agent output through stdin
 printf '%s' "$TEXT" | agent-voice speak --label build-summary
 
-# Spoken response text and written response Markdown in one command
-agent-voice speak "$RESPONSE_AS_TEXT" \
-  --markdown "$RESPONSE_AS_MARKDOWN" --label response
-
-# Use separate files for a long spoken response and its written Markdown
-agent-voice speak --response-file "$RESPONSE_AS_MARKDOWN_FILE" \
-  < "$RESPONSE_AS_TEXT_FILE"
+# Use a file for a long spoken response
+agent-voice speak --label response < "$RESPONSE_AS_TEXT_FILE"
 
 # Choose the output and delivery
 agent-voice speak "Here is your summary." \
@@ -180,8 +175,6 @@ agent-voice speak "Here is your summary." \
 | --- | --- |
 | `-o, --output PATH` | Write to an exact path. |
 | `--label TEXT` | Set the managed filename prefix. |
-| `--markdown TEXT` | Show an inline Markdown response in the viewer. |
-| `--response-file PATH` | Show a Markdown response in the browser viewer. |
 | `--output-dir DIR` | Choose the managed output directory. |
 | `-f, --format FORMAT` | Use `wav`, `mp3`, `opus`, or `m4a`. |
 | `-v, --voice NAME` | Select a voice. |
@@ -190,12 +183,14 @@ agent-voice speak "Here is your summary." \
 | `-p, --play` | Start local playback after creation, without waiting for it to finish. |
 | `--play-after SECONDS` | Schedule local playback after creation, without waiting. |
 | `--controls` | Include experimental `agent-voice://` playback control links. |
+| `--wait` | Wait for the completed recording instead of returning live links. |
 | `--no-service` | Run the same Agent Voice model inside this command, then unload it. |
 | `--model-id ID`, `--variant NAME` | Select a model and build. |
 
-`speak` prints one JSON receipt with the absolute recording path, file URI,
-audio metadata, playback state (`started` or `scheduled`), and available viewer
-links. This makes the command reliable for both people and agents.
+`speak` prints one JSON receipt with the absolute recording path, generation
+state, audio metadata, playback state (`started` or `scheduled`), and available
+delivery links. By default it returns live links while generation continues;
+pass `--wait` when the completed file is required before the command returns.
 
 ### Configure defaults
 

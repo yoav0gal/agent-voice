@@ -27,6 +27,7 @@ class FakeGenerator:
         self.audio = audio
         self.error = error
         self.requests = []
+        self.background_requests = []
 
     def generate(self, request):
         self.requests.append(request)
@@ -43,6 +44,21 @@ class FakeGenerator:
             sample_rate=24_000,
             duration_seconds=1.0,
             generation_seconds=0.1,
+            backend=self.backend,
+        )
+
+    def generate_background(self, request):
+        self.background_requests.append(request)
+        if self.error is not None:
+            raise self.error
+        return Recording(
+            path=request.output.destination.expanduser().resolve(),
+            format=request.output.audio_format,
+            voice=request.voice,
+            speed=request.speed,
+            sample_rate=None,
+            duration_seconds=None,
+            generation_seconds=None,
             backend=self.backend,
         )
 
@@ -72,6 +88,7 @@ def delivery_success(calls: list | None = None):
         return Delivery(
             browser_url="http://127.0.0.1:49123/player/recording.html",
             audio_url="http://127.0.0.1:49123/recordings/recording.mp3",
+            stream_url="http://127.0.0.1:49123/stream/recording.mp3",
             recording_path=resolved,
         )
 
@@ -128,7 +145,7 @@ def test_service_generation_uses_configured_timeout(tmp_path):
         tmp_path,
         defaults=defaults,
         service=service,
-    ).speak(SpeakRequest("Visible text.", SELECTION))
+    ).speak(SpeakRequest("Visible text.", SELECTION, wait=True))
 
     assert receipt.recording.backend == "service"
     assert receipt.recording.path.read_bytes() == b"service"
@@ -149,7 +166,7 @@ def test_unavailable_service_falls_back_to_embedded(tmp_path):
         embedded=embedded,
         service=service,
         notices=notices,
-    ).speak(SpeakRequest("Visible text.", SELECTION))
+    ).speak(SpeakRequest("Visible text.", SELECTION, wait=True))
 
     assert receipt.recording.backend == "local"
     assert receipt.service_fallback is True
@@ -168,7 +185,7 @@ def test_non_availability_service_errors_do_not_fallback(tmp_path):
             tmp_path,
             embedded=embedded,
             service=service,
-        ).speak(SpeakRequest("Visible text.", SELECTION))
+        ).speak(SpeakRequest("Visible text.", SELECTION, wait=True))
 
     assert embedded.requests == []
 
@@ -530,6 +547,41 @@ def test_delivery_uses_the_spoken_text(tmp_path):
     assert calls[0][1] == "Spoken narration."
     assert calls[0][2] == "he-il"
     assert calls[0][5] is True
+
+
+def test_controls_start_background_generation_without_changing_delivery(tmp_path):
+    service = FakeGenerator(backend="service")
+    receipt = make_speaker(tmp_path, service=service).speak(
+        SpeakRequest("Spoken narration.", SELECTION, controls=True)
+    )
+
+    assert len(service.background_requests) == 1
+    assert service.requests == []
+    assert receipt.generation == {"state": "started"}
+    assert receipt.delivery.browser_url is not None
+    payload = receipt.to_dict()
+    assert payload["path"] == str(receipt.recording.path)
+    assert payload["file_uri"] == receipt.recording.path.as_uri()
+    assert "recording_name" not in payload
+    assert payload["delivery"]["stream_url"] == receipt.delivery.stream_url
+    assert "audio_url" not in payload["delivery"]
+    assert "recording_path" not in payload["delivery"]
+
+
+def test_portable_delivery_returns_optimistic_links_by_default(tmp_path):
+    service = FakeGenerator(backend="service")
+    receipt = make_speaker(tmp_path, service=service).speak(
+        SpeakRequest("Spoken narration.", SELECTION)
+    )
+
+    assert len(service.background_requests) == 1
+    payload = receipt.to_dict()
+    assert payload["generation"] == {"state": "started"}
+    assert payload["path"] == str(receipt.recording.path)
+    assert payload["file_uri"] == receipt.recording.path.as_uri()
+    assert "recording_name" not in payload
+    assert payload["delivery"]["browser_url"] == receipt.delivery.browser_url
+    assert payload["delivery"]["stream_url"] == receipt.delivery.stream_url
 
 
 def test_delivery_failure_facts_are_typed_serialized_and_reported(tmp_path):

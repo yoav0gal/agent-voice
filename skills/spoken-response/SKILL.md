@@ -43,7 +43,8 @@ Choose the mode from the user's request:
    ```
 
 5. Place the audio above the written response or `Previous` confirmation using
-   [default.md](references/delivery/default.md).
+   [default.md](references/delivery/default.md) immediately after `speak`
+returns a receipt with generation.state: "started"
 
 For speaker playback, add `-p` and continue after the result reports
 `playback.state: "started"`. Add `--play-after SECONDS` to schedule it without

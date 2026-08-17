@@ -67,6 +67,7 @@ def _install_macos_handler() -> Path:
     with tempfile.TemporaryDirectory(dir=destination.parent) as temporary:
         candidate = Path(temporary) / _APP_NAME
         script = (
+            "property idleTicks : 0\n"
             "on dispatchControl(commandName, controlValue)\n"
             'do shell script "/usr/bin/nohup " & quoted form of '
             f'"{_applescript_string(sys.executable)}" & '
@@ -75,10 +76,16 @@ def _install_macos_handler() -> Path:
             '" >/dev/null 2>&1 &"\n'
             "end dispatchControl\n"
             "on open location theURL\n"
+            "set idleTicks to 0\n"
             'dispatchControl("control-url", theURL)\n'
-            "end open location"
+            "end open location\n"
+            "on idle\n"
+            "set idleTicks to idleTicks + 1\n"
+            "if idleTicks >= 5 then quit\n"
+            "return 1\n"
+            "end idle"
         )
-        _run(["/usr/bin/osacompile", "-o", str(candidate), "-e", script])
+        _run(["/usr/bin/osacompile", "-s", "-o", str(candidate), "-e", script])
         info_path = candidate / "Contents" / "Info.plist"
         with info_path.open("rb") as stream:
             info = plistlib.load(stream)

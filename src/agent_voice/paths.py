@@ -61,3 +61,16 @@ def model_dir() -> Path:
         if configured
         else project_root() / "models"
     )
+
+
+def pending_generation_path(recording: Path) -> Path:
+    return _generation_path(recording, "pending")
+
+
+def streaming_pcm_path(recording: Path) -> Path:
+    return _generation_path(recording, "pcm")
+
+
+def _generation_path(recording: Path, suffix: str) -> Path:
+    path = recording.expanduser().resolve()
+    return path.with_name(f".{path.name}.{suffix}")

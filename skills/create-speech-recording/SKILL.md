@@ -39,7 +39,8 @@ Use the returned `path` to deliver the recording. For speaker playback, add
 
 ## Deliver
 
-Use [default.md](references/delivery/default.md).
+Use [default.md](references/delivery/default.md) immediately after `speak`
+returns a receipt with generation.state: "started"
 
 ## Setup
 
