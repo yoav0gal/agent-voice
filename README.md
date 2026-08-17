@@ -253,11 +253,11 @@ agent-voice viewer stop
 The lightweight viewer starts automatically when needed and serves only local
 recordings. It prefers `http://127.0.0.1:8779` and selects a free port if that
 port is unavailable. Each managed recording keeps an editable `.txt` source
-beside it. At startup and every six hours, the viewer removes owned audio older
-than four days and 18 hours; files without Agent Voice source, transcript, and
-language metadata are left alone. Opening a player or audio URL regenerates
-missing audio from its source with the original language and current voice and
-speed.
+beside it. At startup and every hour, the viewer removes temporary live-stream
+audio older than one hour and owned recordings older than four days and 18
+hours; files without Agent Voice source, transcript, and language metadata are
+left alone. Opening a player or audio URL regenerates missing audio from its
+source with the original language and current voice and speed.
 
 Playback commands return as soon as local playback starts, or immediately with
 `scheduled` when a delay is requested; they never wait for the recording to end.

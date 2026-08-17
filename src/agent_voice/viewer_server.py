@@ -36,7 +36,7 @@ from .viewer import (
 
 
 DEFAULT_VIEWER_PORT = 8779
-_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
+_CLEANUP_INTERVAL_SECONDS = 60 * 60
 
 
 class Server(ThreadingHTTPServer):
@@ -192,8 +192,11 @@ class Handler(BaseHTTPRequestHandler):
             recording = self._stream_recording(encoded, server)
             if recording is None:
                 self.send_error(404)
-            elif streaming_pcm_path(recording).is_file():
-                self._send_pcm_stream(recording, head)
+            elif pending_generation_path(recording).is_file():
+                if streaming_pcm_path(recording).is_file():
+                    self._send_pcm_stream(recording, head)
+                else:
+                    self.send_error(425, "Recording stream is not ready")
             else:
                 try:
                     completed = self._recording(encoded, server)
@@ -203,11 +206,7 @@ class Handler(BaseHTTPRequestHandler):
                 if completed is None:
                     self.send_error(404)
                 else:
-                    self.send_response(307)
-                    self.send_header(
-                        "Location", f"/recordings/{quote(completed.name, safe='')}"
-                    )
-                    self.end_headers()
+                    self._send_recording_file(completed, encoded, server, head)
             return
         try:
             recording = (
@@ -225,17 +224,25 @@ class Handler(BaseHTTPRequestHandler):
         elif pending_generation_path(recording).is_file():
             self.send_error(425, "Recording is still being generated")
         else:
-            content_type = CONTENT_TYPES[recording.suffix.lower().lstrip(".")]
-            if not self._send_file(recording, content_type, head):
-                try:
-                    recording = self._recording(encoded, server)
-                except Exception:
-                    self.send_error(503, "Recording regeneration failed")
-                    return
-                if recording is None or not self._send_file(
-                    recording, content_type, head
-                ):
-                    self.send_error(404)
+            self._send_recording_file(recording, encoded, server, head)
+
+    def _send_recording_file(
+        self,
+        recording: Path,
+        encoded: str,
+        server: Server,
+        head: bool,
+    ) -> None:
+        content_type = CONTENT_TYPES[recording.suffix.lower().lstrip(".")]
+        if self._send_file(recording, content_type, head):
+            return
+        try:
+            recording = self._recording(encoded, server)
+        except Exception:
+            self.send_error(503, "Recording regeneration failed")
+            return
+        if recording is None or not self._send_file(recording, content_type, head):
+            self.send_error(404)
 
     def _player_recording(self, encoded: str, server: Server) -> Path | None:
         try:

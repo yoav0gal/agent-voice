@@ -33,10 +33,11 @@ _VIEWER_DIRECTORY = ".agent-voice-viewer"
 _PLAYER_DIRECTORY = "players"
 _CONTROL_DIRECTORY = "controls"
 _RECORDING_RETENTION_SECONDS = (4 * 24 + 18) * 60 * 60
-_STREAM_RETENTION_SECONDS = 6 * 60 * 60
+_STREAM_RETENTION_SECONDS = 60 * 60
+_INTERRUPTED_GENERATION_RETENTION_SECONDS = 6 * 60 * 60
 _STARTUP_TIMEOUT_SECONDS = 15.0
 _STARTUP_HEALTH_TIMEOUT_SECONDS = 1.0
-VIEWER_PROTOCOL = 11
+VIEWER_PROTOCOL = 12
 _CONTROL_TOKEN = re.compile(r"[A-Za-z0-9_-]{24}")
 
 
@@ -262,13 +263,14 @@ def delete_expired_recordings(recordings: Path, *, now: float | None = None) -> 
     current = time.time() if now is None else now
     cutoff = current - _RECORDING_RETENTION_SECONDS
     stream_cutoff = current - _STREAM_RETENTION_SECONDS
+    interrupted_cutoff = current - _INTERRUPTED_GENERATION_RETENTION_SECONDS
     try:
         # ponytail: a direct top-level scan is enough for the managed folder.
         for path in recordings.iterdir():
             try:
                 if path.name.startswith(".") and path.suffix == ".pending":
                     recording = recordings / path.name[1 : -len(path.suffix)]
-                    if path.stat().st_mtime <= stream_cutoff:
+                    if path.stat().st_mtime <= interrupted_cutoff:
                         path.unlink()
                         streaming_pcm_path(recording).unlink(missing_ok=True)
                         if recording.is_file() and (

@@ -17,7 +17,7 @@ import pytest
 from agent_voice import viewer as viewer_module
 from agent_voice import viewer_server
 from agent_voice import controls as controls_module
-from agent_voice.media import generating_audio
+from agent_voice.media import CONTENT_TYPES, generating_audio
 from agent_voice.paths import pending_generation_path, streaming_pcm_path
 from agent_voice.viewer import (
     VIEWER_PROTOCOL,
@@ -128,10 +128,14 @@ def test_player_uses_native_live_audio_while_recording_is_generated(tmp_path, na
             assert response.headers["Content-Type"] == "audio/wav"
         writer.join(timeout=1)
 
-        streaming_pcm_path(recording).unlink()
         with urllib.request.urlopen(f"{url}/stream/{name}") as response:
-            assert response.url == f"{url}/recordings/{name}"
+            assert response.url == f"{url}/stream/{name}"
+            assert response.status == 200
+            assert (
+                response.headers["Content-Type"] == CONTENT_TYPES[name.split(".")[-1]]
+            )
             assert response.read() == b"final audio"
+        assert streaming_pcm_path(recording).is_file()
 
     assert audio[:4] == b"RIFF"
     assert audio[8:12] == b"WAVE"
@@ -431,7 +435,7 @@ def test_viewer_binding_does_not_resolve_localhost(tmp_path, monkeypatch):
         assert server.server_port > 0
 
 
-def test_viewer_cleans_at_startup_and_every_six_hours(tmp_path, monkeypatch):
+def test_viewer_cleans_at_startup_and_every_hour(tmp_path, monkeypatch):
     calls = []
     now = [100.0]
     monkeypatch.setattr(
@@ -444,7 +448,7 @@ def test_viewer_cleans_at_startup_and_every_six_hours(tmp_path, monkeypatch):
     with Server(tmp_path) as server:
         assert calls == []
         server.service_actions()
-        now[0] += 6 * 60 * 60 - 1
+        now[0] += 60 * 60 - 1
         server.service_actions()
         now[0] += 1
         server.service_actions()
@@ -521,9 +525,13 @@ def test_completed_stream_sidecars_expire_without_touching_active_generation(tmp
         streaming_pcm_path(recording).write_bytes(b"pcm")
         os.utime(
             streaming_pcm_path(recording),
-            (now - 6 * 60 * 60 - 1,) * 2,
+            (now - 60 * 60 - 1,) * 2,
         )
     pending_generation_path(active).touch()
+    os.utime(
+        pending_generation_path(active),
+        (now - 60 * 60 - 1,) * 2,
+    )
     pending_generation_path(stale).touch()
     stale.write_bytes(generating_audio("mp3"))
     os.utime(
