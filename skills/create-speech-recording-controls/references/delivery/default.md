@@ -13,7 +13,7 @@ outer four-backtick fence.
 
 ---
 
-Agent Voice recording · ⚠️ Experimental ⚠️
+Agent Voice recording
 
 Controls: [↺ Restart]($restart) · [↶ 10s]($back) · [⏯ Play / pause]($toggle) · [10s ↷]($forward) · [🐢 Slower]($slower) · [Faster 🐇]($faster)
 
