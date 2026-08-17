@@ -120,7 +120,7 @@ def build_parser() -> argparse.ArgumentParser:
     speak.add_argument(
         "--controls",
         action="store_true",
-        help="include experimental desktop playback control links",
+        help="include desktop playback control links",
     )
     speak.add_argument(
         "--wait",

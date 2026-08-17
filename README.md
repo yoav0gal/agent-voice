@@ -95,6 +95,13 @@ Agent Voice provides two skill types:
 > and operating system, you may be asked to approve opening `agent-voice://`
 > links. If the links are not clickable or do not open, use the normal skills.
 
+> [!TIP]
+> Normal and controls delivery is asynchronous by default: it returns live
+> links while generation continues. OpenCode Desktop delivery is asynchronous
+> too. Other desktop delivery waits for the completed recording, so it appears
+> more slowly but provides a better embedded experience. If speed matters, use
+> the normal skills in desktop apps too.
+
 #### Normal skills (most portable)
 
 ```sh
@@ -119,9 +126,6 @@ npx skills add yoav0gal/agent-voice -g --skill spoken-response-desktop
 
 #### Controls skills (best experience in supported terminals)
 
-> [!WARNING]
-> Experimental feature.
-
 ```sh
 agent-voice controls install
 npx skills add yoav0gal/agent-voice -g --skill create-speech-recording-controls
@@ -129,7 +133,7 @@ npx skills add yoav0gal/agent-voice -g --skill spoken-response-controls
 ```
 
 <p align="center">
-  <img src="assets/screenshots/controls-delivery.png" alt="Experimental Agent Voice playback controls with a web-player fallback" width="800">
+  <img src="assets/screenshots/controls-delivery.png" alt="Agent Voice playback controls with a web-player fallback" width="800">
 </p>
 
 Remove the handler with `agent-voice controls uninstall`.
@@ -151,7 +155,7 @@ The CLI provides small primitives that agents can combine. Run
 | `doctor` | Check that Agent Voice is ready. |
 | `service start\|stop` | Manage the background speech service. |
 | `viewer start\|stop` | Manage the local recording viewer. |
-| `controls install\|uninstall` | Install or remove the experimental `agent-voice://` protocol handler. |
+| `controls install\|uninstall` | Install or remove the `agent-voice://` protocol handler. |
 | `serve` | Start the localhost speech API. |
 
 ### Speak
@@ -182,7 +186,7 @@ agent-voice speak "Here is your summary." \
 | `--speed NUMBER` | Set pitch-preserving playback speed. |
 | `-p, --play` | Start local playback after creation, without waiting for it to finish. |
 | `--play-after SECONDS` | Schedule local playback after creation, without waiting. |
-| `--controls` | Include experimental `agent-voice://` playback control links. |
+| `--controls` | Include `agent-voice://` playback control links. |
 | `--wait` | Wait for the completed recording instead of returning live links. |
 | `--no-service` | Run the same Agent Voice model inside this command, then unload it. |
 | `--model-id ID`, `--variant NAME` | Select a model and build. |
