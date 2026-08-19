@@ -35,8 +35,8 @@ Choose the mode from the user's request:
    agent-voice speak "$RESPONSE_AS_TEXT" --label "$LABEL" --controls
    ```
 
-   For long responses, use temporary files outside the workspace and remove them
-   afterward:
+   For long responses, create a unique file in the system temporary directory.
+   The operating system handles cleanup.
 
    ```sh
    agent-voice speak --label "$LABEL" --controls < "$RESPONSE_AS_TEXT_FILE"

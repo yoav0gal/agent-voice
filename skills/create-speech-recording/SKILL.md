@@ -24,7 +24,8 @@ Set `RESPONSE_AS_TEXT` to the text's spoken form.
 agent-voice speak "$RESPONSE_AS_TEXT"
 ```
 
-For long text, use temporary files outside the workspace and remove them afterward:
+For long text, create a unique file in the system temporary directory. The
+operating system handles cleanup.
 
 ```sh
 agent-voice speak --label "$LABEL" < "$RESPONSE_AS_TEXT_FILE"
