@@ -152,10 +152,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get(self, *, head: bool) -> None:
         server = self.server
-        if not isinstance(server, Server) or not self._valid_host(server):
+        if not isinstance(server, Server) or not self._valid_host(server, remote=True):
             self.send_error(403)
             return
-
         url = urlsplit(self.path)
         if url.query:
             self.send_error(404)
@@ -297,11 +296,38 @@ class Handler(BaseHTTPRequestHandler):
         recording = self._recording(quote(recording_name, safe=""), server)
         return None if recording is None else (recording, action)
 
-    def _valid_host(self, server: Server) -> bool:
-        return self.headers.get("Host", "").lower() in {
+    def _valid_host(self, server: Server, *, remote: bool = False) -> bool:
+        if not remote and any(
+            header in self.headers
+            for header in (
+                "Forwarded",
+                "X-Forwarded-For",
+                "X-Forwarded-Host",
+                "X-Forwarded-Proto",
+            )
+        ):
+            return False
+        hosts = self.headers.get_all("Host", [])
+        if len(hosts) != 1:
+            return False
+        host = hosts[0].lower()
+        if host in {
             f"127.0.0.1:{server.server_port}",
             f"localhost:{server.server_port}",
-        }
+        }:
+            return True
+        if not remote:
+            return False
+        try:
+            base_url = load_defaults().viewer_base_url
+        except ValueError:
+            return False
+        if base_url is None:
+            return False
+        authority = urlsplit(base_url).netloc
+        return host == authority or (
+            urlsplit(base_url).port is None and host == f"{authority}:443"
+        )
 
     def _recording(self, encoded: str, server: Server) -> Path | None:
         try:

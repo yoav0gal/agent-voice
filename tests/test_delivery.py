@@ -6,6 +6,7 @@ import pytest
 
 from agent_voice import delivery, viewer as viewer_module
 from agent_voice.viewer import Viewer, language_path, source_path
+from agent_voice.config import update_defaults
 
 
 def _viewer(root: Path) -> Viewer:
@@ -80,6 +81,36 @@ def test_prepare_delivery_copies_external_output_and_stores_transcript(
     assert result.controls is None
     assert not (managed / ".agent-voice-viewer" / "controls").exists()
     assert output.read_bytes() == b"m4a-audio"
+
+
+def test_remote_delivery_returns_reachable_links_and_keeps_local_viewer(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path / "home"))
+    update_defaults(viewer_base_url="https://mini.example:8443")
+    recording = tmp_path / "Daily update & notes.mp3"
+    recording.write_bytes(b"audio")
+    local_viewer = _viewer(tmp_path)
+    monkeypatch.setattr(delivery, "ensure_viewer", lambda _root: local_viewer)
+
+    result = delivery.prepare_delivery(
+        recording, "Spoken narration.", recordings_dir=tmp_path
+    )
+
+    assert (
+        result.browser_url
+        == "https://mini.example:8443/player/Daily%20update%20%26%20notes.html"
+    )
+    assert (
+        result.audio_url
+        == "https://mini.example:8443/recordings/Daily%20update%20%26%20notes.mp3"
+    )
+    assert (
+        result.stream_url
+        == "https://mini.example:8443/stream/Daily%20update%20%26%20notes.mp3"
+    )
+    assert local_viewer.url == "http://127.0.0.1:49123"
+    assert result.recording_path == recording
 
 
 def test_prepare_delivery_adds_real_format_to_extensionless_output(

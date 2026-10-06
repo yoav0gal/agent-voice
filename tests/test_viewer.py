@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import http.client
 import json
 import os
 import socket
@@ -18,6 +19,7 @@ from agent_voice import viewer as viewer_module
 from agent_voice import viewer_server
 from agent_voice import controls as controls_module
 from agent_voice.media import CONTENT_TYPES, generating_audio
+from agent_voice.config import update_defaults
 from agent_voice.paths import pending_generation_path, streaming_pcm_path
 from agent_voice.viewer import (
     VIEWER_PROTOCOL,
@@ -408,6 +410,103 @@ def test_viewer_rejects_host_header(tmp_path):
         with pytest.raises(urllib.error.HTTPError) as rejected:
             urllib.request.urlopen(hostile)
         assert rejected.value.code == 403
+
+
+def test_remote_viewer_reads_work_and_config_changes_apply_without_restart(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path / "home"))
+    recording = tmp_path / "remote.mp3"
+    recording.write_bytes(b"remote audio")
+    publish_source(recording, "Remote narration")
+    player = publish_player(recording)
+    with _running_viewer(tmp_path) as (_, url):
+        update_defaults(viewer_base_url="https://mini.example:8443")
+        for path, method in [
+            (f"/player/{player}", "GET"),
+            ("/recordings/remote.mp3", "HEAD"),
+            ("/stream/remote.mp3", "GET"),
+        ]:
+            request = urllib.request.Request(
+                f"{url}{path}", headers={"Host": "MINI.example:8443"}, method=method
+            )
+            with urllib.request.urlopen(request) as response:
+                assert response.status == 200
+                if method == "HEAD":
+                    assert response.read() == b""
+                elif path.startswith("/player/"):
+                    assert b'src="/recordings/remote.mp3"' in response.read()
+                else:
+                    assert response.read() == b"remote audio"
+        for method, path, headers in [
+            ("GET", "/health", {"Host": "attacker.example:8443"}),
+            (
+                "POST",
+                "/play/remote.mp3",
+                {"Host": "mini.example:8443", "X-Agent-Voice-Playback": "1"},
+            ),
+            (
+                "POST",
+                "/control/abcdefghijklmnopqrstuvwx/toggle",
+                {"Host": "mini.example:8443", "X-Agent-Voice-Control": "1"},
+            ),
+        ]:
+            with pytest.raises(urllib.error.HTTPError) as rejected:
+                urllib.request.urlopen(
+                    urllib.request.Request(
+                        f"{url}{path}", headers=headers, method=method
+                    )
+                )
+            assert rejected.value.code == 403
+        request = urllib.request.Request(
+            f"{url}/play/remote.mp3",
+            headers={"X-Forwarded-For": "100.64.0.1", "X-Agent-Voice-Playback": "1"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(request)
+        assert rejected.value.code == 403
+        update_defaults(viewer_base_url="https://other.example")
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    f"{url}/health", headers={"Host": "mini.example:8443"}
+                )
+            )
+        assert rejected.value.code == 403
+        with urllib.request.urlopen(
+            urllib.request.Request(f"{url}/health", headers={"Host": "other.example"})
+        ) as response:
+            assert response.status == 200
+        update_defaults(viewer_base_url=None)
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    f"{url}/health", headers={"Host": "other.example"}
+                )
+            )
+        assert rejected.value.code == 403
+        with urllib.request.urlopen(f"{url}/health") as response:
+            assert response.status == 200
+
+
+def test_viewer_rejects_duplicate_host_headers(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path / "home"))
+    update_defaults(viewer_base_url="https://mini.example:8443")
+    with _running_viewer(tmp_path) as (server, _url):
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", server.server_port, timeout=2
+        )
+        try:
+            connection.putrequest("GET", "/health", skip_host=True)
+            connection.putheader("Host", "mini.example:8443")
+            connection.putheader("Host", "attacker.example")
+            connection.endheaders()
+            response = connection.getresponse()
+            assert response.status == 403
+            response.read()
+        finally:
+            connection.close()
 
 
 def test_viewer_prefers_stable_port(tmp_path, monkeypatch):

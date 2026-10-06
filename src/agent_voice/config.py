@@ -6,6 +6,7 @@ import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .paths import project_root
 
@@ -26,6 +27,7 @@ class SpeechDefaults:
     format: str = DEFAULT_FORMAT
     service_timeout_minutes: float = DEFAULT_SERVICE_TIMEOUT_MINUTES
     output_dir: str | None = None
+    viewer_base_url: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -34,6 +36,7 @@ class SpeechDefaults:
             "format": self.format,
             "service": {"timeout_minutes": self.service_timeout_minutes},
             "output_dir": self.output_dir,
+            "viewer_base_url": self.viewer_base_url,
         }
 
 
@@ -59,6 +62,7 @@ def load_defaults() -> SpeechDefaults:
         payload.get("format", DEFAULT_FORMAT),
         _service_timeout(payload),
         payload.get("output_dir"),
+        payload.get("viewer_base_url"),
     )
 
 
@@ -69,6 +73,7 @@ def update_defaults(
     format: str | None = None,
     service_timeout_minutes: float | None = None,
     output_dir: str | os.PathLike[str] | None | object = _UNSET,
+    viewer_base_url: str | None | object = _UNSET,
 ) -> SpeechDefaults:
     current = load_defaults()
     updated = _validated_defaults(
@@ -79,6 +84,7 @@ def update_defaults(
         if service_timeout_minutes is None
         else service_timeout_minutes,
         current.output_dir if output_dir is _UNSET else output_dir,
+        current.viewer_base_url if viewer_base_url is _UNSET else viewer_base_url,
     )
     _write_config(updated)
     return updated
@@ -95,6 +101,7 @@ def _validated_defaults(
     format: object,
     service_timeout_minutes: object,
     output_dir: object,
+    viewer_base_url: object,
 ) -> SpeechDefaults:
     if not isinstance(voice, str) or not voice.strip():
         raise ValueError("Default voice must be a non-empty string")
@@ -131,7 +138,43 @@ def _validated_defaults(
         audio_format,
         timeout,
         configured_output_dir,
+        _viewer_base_url(viewer_base_url),
     )
+
+
+def _viewer_base_url(value: object) -> str | None:
+    if value is None:
+        return None
+    message = "Viewer base URL must be an HTTPS origin without credentials, path, query, or fragment"
+    if not isinstance(value, str) or any(
+        character.isspace() or ord(character) < 32 or character in "\\%?#*"
+        for character in value
+    ):
+        raise ValueError(message)
+    try:
+        url = urlsplit(value)
+        port = url.port
+        if (
+            url.scheme != "https"
+            or not url.hostname
+            or not url.hostname.isascii()
+            or any(
+                not (character.isalnum() or character in ".-:[]")
+                for character in url.netloc
+            )
+            or url.username is not None
+            or url.password is not None
+            or url.path not in ("", "/")
+            or (port is not None and port == 0)
+        ):
+            raise ValueError(message)
+    except ValueError as error:
+        raise ValueError(message) from error
+    host = url.hostname.lower()
+    if ":" in host:
+        host = f"[{host}]"
+    authority = host if port in (None, 443) else f"{host}:{port}"
+    return f"https://{authority}"
 
 
 def _service_timeout(payload: dict[str, object]) -> object:

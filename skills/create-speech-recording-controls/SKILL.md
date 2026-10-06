@@ -12,6 +12,10 @@ matching voice with `agent-voice voices` and pass `--voice` and `--lang`.
 
 Set `RESPONSE_AS_TEXT` to the text's spoken form.
 
+- Use speech-ready plain text, not serialized text. Convert literal `\n`, `\r`,
+  `\t`, `&#x20;`, `&#32;`, and `&nbsp;` to normal spacing. To discuss one
+  intentionally, write its spoken form, such as "backslash n".
+
 - For supplied text, preserve every word and punctuation mark in order while
   translating presentation syntax into speech.
 - For a requested summary or explanation, write natural speech with the same
@@ -42,6 +46,18 @@ blocking.
 
 Use [default.md](references/delivery/default.md) immediately after `speak`
 returns a receipt with generation.state: "started"
+
+## Remote delivery
+
+Remote delivery requires Agent Voice 0.10.0 or newer. Run `agent-voice update`
+if an installed version does not recognize `--viewer-base-url`.
+
+When `delivery.browser_url` uses HTTPS, or generation runs on another machine,
+return the HTTPS player URL as `[Listen](URL)`. This takes precedence over the
+local delivery examples. Local file paths and desktop controls refer to the generating
+machine; omit them from remote delivery. Do not use `-p` to play on that machine
+unless the user asks. A localhost URL needs a configured private proxy and
+`agent-voice config --viewer-base-url HTTPS_ORIGIN` before remote delivery works.
 
 ## Setup
 

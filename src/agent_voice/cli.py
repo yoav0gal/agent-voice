@@ -187,6 +187,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="set the managed recording directory; use default to restore it",
     )
     config.add_argument(
+        "--viewer-base-url",
+        default=argparse.SUPPRESS,
+        metavar="HTTPS_ORIGIN|default",
+        help="set the browser player origin behind a private proxy; use default for localhost",
+    )
+    config.add_argument(
         "--reset", action="store_true", help="restore built-in defaults"
     )
     config.add_argument("--json", action="store_true", help="print one JSON result")
@@ -505,11 +511,15 @@ def _config(args: argparse.Namespace) -> None:
         updates["service_timeout_minutes"] = args.service_timeout
     if hasattr(args, "output_dir"):
         updates["output_dir"] = args.output_dir
+    if hasattr(args, "viewer_base_url"):
+        updates["viewer_base_url"] = (
+            None if args.viewer_base_url == "default" else args.viewer_base_url
+        )
 
     if args.reset and updates:
         raise ValueError(
             "--reset cannot be combined with --voice, --speed, --format, "
-            "--service-timeout, or --output-dir"
+            "--service-timeout, --output-dir, or --viewer-base-url"
         )
     if args.reset:
         defaults = reset_defaults()
@@ -531,6 +541,7 @@ def _config(args: argparse.Namespace) -> None:
         print(f"Format: {defaults.format}")
         print(f"Service timeout: {defaults.service_timeout_minutes:g} minutes")
         print(f"Output directory: {defaults.output_dir or 'default'}")
+        print(f"Viewer base URL: {defaults.viewer_base_url or 'localhost'}")
         print(f"Source: {payload['source']}")
         print(f"Config: {payload['path']}")
 
@@ -611,6 +622,8 @@ def _viewer(args: argparse.Namespace) -> None:
         return
     if report.running:
         print(f"Recording viewer: {report.url}")
+        if report.delivery_url != report.url:
+            print(f"Remote player: {report.delivery_url}")
         print(f"Recordings: {report.recordings_dir}")
     else:
         print("Recording viewer: stopped")

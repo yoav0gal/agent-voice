@@ -31,6 +31,15 @@ from .registry import MODEL_REGISTRY
 from .viewer import start_playback
 
 
+_SPEECH_WHITESPACE = re.compile(
+    r"(?:\s|\\[nrt]|&(?i:nbsp|#0*32|#x0*20);)+",
+)
+
+
+def _speech_ready_text(text: str) -> str:
+    return _SPEECH_WHITESPACE.sub(" ", text).strip()
+
+
 @dataclass(frozen=True)
 class SpeakRequest:
     text: str
@@ -299,7 +308,7 @@ class Speaker:
         defaults: SpeechDefaults,
     ) -> _ResolvedSpeakRequest:
         return _ResolvedSpeakRequest(
-            text=request.text,
+            text=_speech_ready_text(request.text),
             selection=request.selection,
             output=self._plan_output(request, defaults),
             voice=request.voice if request.voice is not None else defaults.voice,
