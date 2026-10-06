@@ -45,6 +45,7 @@ def test_defaults_are_persisted_and_reset(tmp_path, monkeypatch):
             "timeout_minutes": 10.0,
         },
         "output_dir": None,
+        "viewer_base_url": None,
     }
 
     reset_defaults()
@@ -174,6 +175,45 @@ def test_config_command_sets_and_resets_output_dir(tmp_path, monkeypatch, capsys
     assert json.loads(capsys.readouterr().out)["output_dir"] is None
 
 
+def test_config_sets_and_clears_remote_viewer_origin(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
+    cli.main(["config", "--viewer-base-url", "https://Mini.example:8443/", "--json"])
+    assert (
+        json.loads(capsys.readouterr().out)["viewer_base_url"]
+        == "https://mini.example:8443"
+    )
+    assert load_defaults().viewer_base_url == "https://mini.example:8443"
+    update_defaults(speed=1.2)
+    assert load_defaults().viewer_base_url == "https://mini.example:8443"
+
+    cli.main(["config", "--viewer-base-url", "default", "--json"])
+    assert json.loads(capsys.readouterr().out)["viewer_base_url"] is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://mini.example",
+        "https://",
+        "https://user:secret@mini.example",
+        "https://mini.example/voice",
+        "https://mini.example?x=1",
+        "https://mini.example#player",
+        "https://mini.example:0",
+        "https://mini.example:65536",
+        "https://mini.example:bad",
+        "https://mini.example\n",
+        "https://mini.example\\attacker",
+        "https://*.example",
+    ],
+)
+def test_invalid_viewer_origin_does_not_change_config(tmp_path, monkeypatch, url):
+    monkeypatch.setenv("AGENT_VOICE_HOME", str(tmp_path))
+    with pytest.raises(ValueError, match="Viewer base URL"):
+        update_defaults(viewer_base_url=url)
+    assert not config_path().exists()
+
+
 @pytest.mark.parametrize(
     "update",
     [
@@ -182,6 +222,7 @@ def test_config_command_sets_and_resets_output_dir(tmp_path, monkeypatch, capsys
         ["--format", "mp3"],
         ["--service-timeout", "3.5"],
         ["--output-dir", "default"],
+        ["--viewer-base-url", "default"],
     ],
 )
 def test_config_reset_rejects_updates(update):

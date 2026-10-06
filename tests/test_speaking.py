@@ -549,6 +549,35 @@ def test_delivery_uses_the_spoken_text(tmp_path):
     assert calls[0][5] is True
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (r"Hello\n&#x20;world. Say backslash n.", "Hello world. Say backslash n."),
+        ("Hello\r\n\n\tworld.", "Hello world."),
+        (r"Open C:\Temp\Reports.", r"Open C:\Temp\Reports."),
+        ("Hello&NBSP;&#X20;&#0032;world.", "Hello world."),
+    ],
+)
+def test_speech_text_normalizes_serialized_whitespace(tmp_path, text, expected):
+    embedded = FakeGenerator(backend="local")
+    calls = []
+
+    make_speaker(
+        tmp_path,
+        embedded=embedded,
+        delivery=delivery_success(calls),
+    ).speak(
+        SpeakRequest(
+            text,
+            SELECTION,
+            no_service=True,
+        )
+    )
+
+    assert embedded.requests[0].text == expected
+    assert calls[0][1] == expected
+
+
 def test_controls_start_background_generation_without_changing_delivery(tmp_path):
     service = FakeGenerator(backend="service")
     receipt = make_speaker(tmp_path, service=service).speak(

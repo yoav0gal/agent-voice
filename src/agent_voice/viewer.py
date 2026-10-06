@@ -20,6 +20,7 @@ from urllib.parse import quote
 from filelock import FileLock
 
 from .audio import PLAYBACK_ACTIONS
+from .config import load_defaults
 from .media import CONTENT_TYPES, generating_audio
 from .paths import (
     pending_generation_path,
@@ -37,7 +38,7 @@ _STREAM_RETENTION_SECONDS = 60 * 60
 _INTERRUPTED_GENERATION_RETENTION_SECONDS = 6 * 60 * 60
 _STARTUP_TIMEOUT_SECONDS = 15.0
 _STARTUP_HEALTH_TIMEOUT_SECONDS = 1.0
-VIEWER_PROTOCOL = 12
+VIEWER_PROTOCOL = 13
 _CONTROL_TOKEN = re.compile(r"[A-Za-z0-9_-]{24}")
 
 
@@ -55,10 +56,15 @@ class Viewer:
     def url(self) -> str | None:
         return None if self.port is None else f"http://127.0.0.1:{self.port}"
 
+    @property
+    def delivery_url(self) -> str | None:
+        return None if not self.running else load_defaults().viewer_base_url or self.url
+
     def to_dict(self) -> dict[str, object]:
         return {
             "running": self.running,
             "url": self.url,
+            "delivery_url": self.delivery_url,
             "port": self.port,
             "pid": self.pid,
             "recordings_dir": str(self.recordings_dir),
@@ -314,9 +320,10 @@ def recording_player_url(
     viewer: Viewer,
     player_name: str,
 ) -> str:
-    if not viewer.url:
+    base_url = viewer.delivery_url
+    if not base_url:
         raise RuntimeError("Recording viewer is not running")
-    return f"{viewer.url}/player/{quote(player_name, safe='')}"
+    return f"{base_url}/player/{quote(player_name, safe='')}"
 
 
 def recording_urls(
@@ -324,18 +331,20 @@ def recording_urls(
     recording: Path,
     player_name: str,
 ) -> tuple[str, str]:
-    if not viewer.url:
+    base_url = viewer.delivery_url
+    if not base_url:
         raise RuntimeError("Recording viewer is not running")
     return (
-        recording_player_url(viewer, player_name),
-        f"{viewer.url}/recordings/{quote(recording.name, safe='')}",
+        f"{base_url}/player/{quote(player_name, safe='')}",
+        f"{base_url}/recordings/{quote(recording.name, safe='')}",
     )
 
 
 def recording_stream_url(viewer: Viewer, recording: Path) -> str:
-    if not viewer.url:
+    base_url = viewer.delivery_url
+    if not base_url:
         raise RuntimeError("Recording viewer is not running")
-    return f"{viewer.url}/stream/{quote(recording.name, safe='')}"
+    return f"{base_url}/stream/{quote(recording.name, safe='')}"
 
 
 def recording_control_urls(token: str) -> dict[str, str]:

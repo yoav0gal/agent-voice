@@ -196,6 +196,11 @@ state, audio metadata, playback state (`started` or `scheduled`), and available
 delivery links. By default it returns live links while generation continues;
 pass `--wait` when the completed file is required before the command returns.
 
+Speech text and the viewer transcript collapse whitespace, literal `\n`, `\r`,
+and `\t` escapes, and HTML space entities to spaces. Paragraph breaks are
+flattened. Write code and paths in their spoken form when needed; a lowercase
+escape in a path such as `C:\new` is also treated as whitespace.
+
 ### Configure defaults
 
 ```sh
@@ -212,6 +217,9 @@ agent-voice config --reset
 
 Voice, speed, format, and output directory can be overridden per recording with
 `speak`.
+
+For recordings generated on another machine, configure `--viewer-base-url` as
+described below. `--reset` also restores localhost delivery links.
 
 ### Manage the Agent Voice service
 
@@ -271,6 +279,55 @@ Playback commands return as soon as local playback starts, or immediately with
 > audio. I expect native text-to-speech to become common across these platforms,
 > which would be a better solution. For now, the viewer keeps playback and the
 > written response together in a local page. 🗒️
+
+### Listen to recordings generated on another machine
+
+Use Agent Voice 0.10.0 or newer. Run `agent-voice update` to upgrade an existing
+installation. Run Agent Voice on the remote machine and expose its recording viewer through
+a private HTTPS reverse proxy, such as Tailscale Serve. Configure one origin:
+
+```sh
+agent-voice config --viewer-base-url https://mini.your-tailnet.ts.net:8443
+agent-voice viewer start --json
+```
+
+The viewer report includes its actual localhost `port` and its `delivery_url`.
+Proxy that port, preserving the viewer's root paths. For example, if the report
+says port `8779` and HTTPS port `8443` is unused:
+
+```sh
+tailscale serve --bg --https=8443 http://127.0.0.1:8779
+agent-voice speak --label "Remote update" --wait "The remote recording is ready."
+```
+
+Use the returned `delivery.browser_url` as a Listen link in Codex, T3 Code, or
+another chat. The browser plays on the device opening the link. Remote file
+paths, `agent-voice://` controls, and `--play` target the generating machine.
+The skills use the browser link when generation is remote.
+
+The configured origin must use HTTPS, with no credentials, path prefix, query,
+or fragment. It controls returned player/audio/stream links and the exact Host
+accepted for GET/HEAD requests. The viewer still binds to localhost. Speech
+generation and local playback stay on localhost. The proxy must preserve the
+original Host header or add `X-Forwarded-For` so proxied requests cannot start
+playback on the host's speakers. Tailscale Serve meets this requirement.
+Changes to this setting apply to the running
+viewer without restarting it.
+
+The setting applies to every recording on that machine, including local chats.
+
+Serve restricts access to your tailnet; the viewer has no separate login. Anyone
+allowed to reach this route can read its recordings and narration text. Use a
+dedicated private Serve port, not a public Funnel route, and preserve existing
+routes. The setting does not configure Tailscale or verify remote access. Check
+the player link from your receiving device. If the viewer chooses a new port
+after a restart because its usual port is busy, update the proxy target.
+
+Restore localhost delivery with:
+
+```sh
+agent-voice config --viewer-base-url default
+```
 
 ### Local speech API
 
