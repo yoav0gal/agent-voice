@@ -82,7 +82,7 @@ Agent Voice provides two skill types:
 
 | Where you use your agent | Recommended variant | What you get |
 | --- | --- | --- |
-| ChatGPT (Codex), OpenCode Desktop, and Antigravity 2.0 | Use the `-desktop` skills | Embedded native or HTML audio player |
+| ChatGPT (Codex), OpenCode Desktop, Antigravity 2.0, and T3 Code | Use the `-desktop` skills | Embedded native or HTML audio player |
 | A terminal | Try `-controls` skills first | Clickable `agent-voice://` playback controls with a web-player fallback |
 | Any other setup, or when desktop delivery or terminal controls do not work | Use the normal skills | Portable Markdown links to the web player, media app, and web audio |
 
@@ -97,10 +97,10 @@ Agent Voice provides two skill types:
 
 > [!TIP]
 > Normal and controls delivery is asynchronous by default: it returns live
-> links while generation continues. OpenCode Desktop delivery is asynchronous
-> too. Other desktop delivery waits for the completed recording, so it appears
-> more slowly but provides a better embedded experience. If speed matters, use
-> the normal skills in desktop apps too.
+> links while generation continues. OpenCode Desktop and T3 Code delivery is
+> asynchronous too. Other desktop delivery waits for the completed recording,
+> so it appears more slowly but provides a better embedded experience. If speed
+> matters, use the normal skills in desktop apps too.
 
 #### Normal skills (most portable)
 

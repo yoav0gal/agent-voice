@@ -1,6 +1,6 @@
 ---
 name: create-speech-recording-desktop
-description: Create and embed a speech recording in Codex Desktop, Antigravity App, or OpenCode Desktop.
+description: Create and embed a speech recording in Codex Desktop, Antigravity App, OpenCode Desktop, or T3 Code.
 ---
 
 # Create Speech Recording Desktop
@@ -35,7 +35,7 @@ operating system handles cleanup.
 agent-voice speak --label "$LABEL" --wait < "$RESPONSE_AS_TEXT_FILE"
 ```
 
-On OpenCode Desktop, omit `--wait`. On Antigravity App, follow the special
+On OpenCode Desktop and T3 Code, omit `--wait`. On Antigravity App, follow the special
 [recording and delivery instructions](references/delivery/antigravity.md).
 
 Set `LABEL` to a short subject. For an exact requested filename, replace
@@ -51,6 +51,7 @@ Use the first matching delivery reference:
 
 - Antigravity App: [antigravity.md](references/delivery/antigravity.md)
 - OpenCode Desktop: [opencode-desktop.md](references/delivery/opencode-desktop.md)
+- T3 Code: [t3-code.md](references/delivery/t3-code.md)
 - Other (Codex Desktop): [default.md](references/delivery/default.md)
 
 ## Remote delivery
