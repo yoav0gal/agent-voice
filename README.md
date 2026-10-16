@@ -82,7 +82,7 @@ Agent Voice provides two skill types:
 
 | Where you use your agent | Recommended variant | What you get |
 | --- | --- | --- |
-| ChatGPT (Codex), OpenCode Desktop, Antigravity 2.0, and T3 Code | Use the `-desktop` skills | Embedded native or HTML audio player |
+| ChatGPT Desktop (Codex), OpenCode Desktop, Antigravity 2.0, and T3 Code | Use the `-desktop` skills | Embedded native or HTML audio player |
 | A terminal | Try `-controls` skills first | Clickable `agent-voice://` playback controls with a web-player fallback |
 | Any other setup, or when desktop delivery or terminal controls do not work | Use the normal skills | Portable Markdown links to the web player, media app, and web audio |
 

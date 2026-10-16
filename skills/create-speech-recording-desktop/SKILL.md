@@ -1,6 +1,6 @@
 ---
 name: create-speech-recording-desktop
-description: Create and embed a speech recording in Codex Desktop, Antigravity App, OpenCode Desktop, or T3 Code.
+description: Create and embed a speech recording in ChatGPT Desktop (Codex), Antigravity App, OpenCode Desktop, or T3 Code.
 ---
 
 # Create Speech Recording Desktop
@@ -52,7 +52,7 @@ Use the first matching delivery reference:
 - Antigravity App: [antigravity.md](references/delivery/antigravity.md)
 - OpenCode Desktop: [opencode-desktop.md](references/delivery/opencode-desktop.md)
 - T3 Code: [t3-code.md](references/delivery/t3-code.md)
-- Other (Codex Desktop): [default.md](references/delivery/default.md)
+- Other (ChatGPT Desktop, formerly Codex): [default.md](references/delivery/default.md)
 
 ## Remote delivery
 

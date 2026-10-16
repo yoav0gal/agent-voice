@@ -1,6 +1,6 @@
 ---
 name: spoken-response-desktop
-description: Read and embed an assistant response aloud in Codex Desktop, Antigravity App, OpenCode Desktop, or T3 Code.
+description: Read and embed an assistant response aloud in ChatGPT Desktop (Codex), Antigravity App, OpenCode Desktop, or T3 Code.
 ---
 
 # Spoken Response Desktop
@@ -56,7 +56,7 @@ Choose the mode from the user's request:
    - Antigravity App: [antigravity.md](references/delivery/antigravity.md)
    - OpenCode Desktop: [opencode-desktop.md](references/delivery/opencode-desktop.md)
    - T3 Code: [t3-code.md](references/delivery/t3-code.md)
-   - Other (Codex Desktop): [default.md](references/delivery/default.md)
+   - Other (ChatGPT Desktop, formerly Codex): [default.md](references/delivery/default.md)
 
 For speaker playback, add `-p` and continue after the result reports
 `playback.state: "started"`. Add `--play-after SECONDS` to schedule it without
